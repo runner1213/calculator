@@ -1,11 +1,10 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
-#include <math.h>
 
-#include "math_parser.h"
+#include "calculator/calculator.h"
 
-void print_help(void) {
+static void print_help(void) {
     printf("\n=== MATH CALCULATOR HELP ===\n");
     printf("Supported operations:\n");
     printf("  Basic: +  -  *  /\n");
@@ -20,57 +19,61 @@ void print_help(void) {
     printf("  ln(x)     - natural logarithm\n");
     printf("  abs(x)    - absolute value\n");
     printf("  exp(x)    - exponential\n");
+    printf("  deg(x)    - convert degrees to radians\n");
+    printf("\nConstants:\n");
+    printf("  pi        - 3.141592653589793...\n");
     printf("\nExamples:\n");
     printf("  sqrt(25)             = 5\n");
-    printf("  2 + 3 * 4           = 14\n");
-    printf("  (2 + 3) * 4         = 20\n");
-    printf("  2^3 + 1             = 9\n");
-    printf("  sin(0) + cos(0)     = 1\n");
-    printf("  sqrt(2^4 + 3^2)     = 5\n");
-    printf("  log(100)            = 2\n");
+    printf("  2 + 3 * 4            = 14\n");
+    printf("  (2 + 3) * 4          = 20\n");
+    printf("  2^3 + 1              = 9\n");
+    printf("  sin(0) + cos(0)      = 1\n");
+    printf("  sin(deg(90))         = 1\n");
+    printf("  cos(pi)              = -1\n");
+    printf("  sqrt(2^4 + 3^2)      = 5\n");
+    printf("  log(100)             = 2\n");
     printf("\nSpecial commands:\n");
     printf("  help - show this help\n");
     printf("  exit - quit program\n");
     printf("============================\n\n");
 }
 
-char* read_dynamic_line(void) {
-    size_t capacity = 100;
+static char* read_dynamic_line(void) {
+    size_t capacity = 128;
     size_t size = 0;
-    char* buffer = (char*)malloc(capacity);
+    char* buffer = malloc(capacity);
 
     if (buffer == NULL) {
-        printf("Memory allocation failed\n");
         return NULL;
     }
 
-    while (1) {
-        if (fgets(buffer + size, capacity - size, stdin) == NULL) {
+    while (fgets(buffer + size, (int)(capacity - size), stdin) != NULL) {
+        size += strlen(buffer + size);
+        if (size > 0 && buffer[size - 1] == '\n') {
+            buffer[size - 1] = '\0';
+            return buffer;
+        }
+
+        if (capacity > ((size_t)-1) / 2) {
             free(buffer);
             return NULL;
         }
 
-        size_t read_len = strlen(buffer + size);
-        size += read_len;
-
-        if (size > 0 && buffer[size - 1] == '\n') {
-            buffer[size - 1] = '\0';
-            break;
+        capacity *= 2;
+        char* resized = realloc(buffer, capacity);
+        if (resized == NULL) {
+            free(buffer);
+            return NULL;
         }
-
-        if (size + 1 >= capacity) {
-            capacity *= 2;
-            char* new_buffer = (char*)realloc(buffer, capacity);
-            if (new_buffer == NULL) {
-                printf("Memory reallocation failed\n");
-                free(buffer);
-                return NULL;
-            }
-            buffer = new_buffer;
-        }
+        buffer = resized;
     }
 
-    return buffer;
+    if (size > 0) {
+        return buffer;
+    }
+
+    free(buffer);
+    return NULL;
 }
 
 int main(void) {
@@ -97,17 +100,16 @@ int main(void) {
             continue;
         }
 
-        if (strlen(expression) == 0) {
+        if (expression[0] == '\0') {
             free(expression);
             continue;
         }
 
-        double result = parser(expression);
-
-        if (isnan(result)) {
-            printf("Error: Could not calculate expression\n");
+        const CalculatorResult result = calculator_evaluate(expression);
+        if (result.status == CALCULATOR_OK) {
+            printf("Result: %.15g\n", result.value);
         } else {
-            printf("Result: %f\n", result);
+            printf("Error: %s\n", result.error);
         }
 
         free(expression);

@@ -1,10 +1,6 @@
-//
-// Created by Runner on 19.12.2025.
-//
+#ifndef CALCULATOR_LEGACY_MATH_PARSER_H
+#define CALCULATOR_LEGACY_MATH_PARSER_H
 
-#ifndef CALCULATOR_MATH_PARSER_H
-#define CALCULATOR_MATH_PARSER_H
+#include "calculator/math_parser.h"
 
-double parser(const char expression[]);
-
-#endif //CALCULATOR_MATH_PARSER_H
+#endif
