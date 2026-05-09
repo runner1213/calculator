@@ -6,6 +6,10 @@
 
 #define MAX_PARSE_DEPTH 512
 #define CALCULATOR_PI 3.14159265358979323846
+#define PHYSICS_C 299792458.0
+#define PHYSICS_G 6.67430e-11
+#define PHYSICS_H 6.62607015e-34
+#define PHYSICS_K 1.380649e-23
 
 static void set_error(Parser* parser, CalculatorStatus status, const char* message) {
     if (parser->result->status != CALCULATOR_OK) {
@@ -77,6 +81,22 @@ static double apply_function(Parser* parser, const char* name, double arg) {
 static int get_constant(const char* name, double* value) {
     if (strcmp(name, "pi") == 0) {
         *value = CALCULATOR_PI;
+        return 1;
+    }
+    if (strcmp(name, "c") == 0) {
+        *value = PHYSICS_C;
+        return 1;
+    }
+    if (strcmp(name, "G") == 0) {
+        *value = PHYSICS_G;
+        return 1;
+    }
+    if (strcmp(name, "h") == 0) {
+        *value = PHYSICS_H;
+        return 1;
+    }
+    if (strcmp(name, "k") == 0) {
+        *value = PHYSICS_K;
         return 1;
     }
 

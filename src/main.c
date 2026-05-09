@@ -22,6 +22,10 @@ static void print_help(void) {
     printf("  deg(x)    - convert degrees to radians\n");
     printf("\nConstants:\n");
     printf("  pi        - 3.141592653589793...\n");
+    printf("  c         - speed of light in vacuum, m/s\n");
+    printf("  G         - gravitational constant, N*m^2/kg^2\n");
+    printf("  h         - Planck constant, J*s\n");
+    printf("  k         - Boltzmann constant, J/K\n");
     printf("\nExamples:\n");
     printf("  sqrt(25)             = 5\n");
     printf("  2 + 3 * 4            = 14\n");
@@ -29,6 +33,7 @@ static void print_help(void) {
     printf("  2^3 + 1              = 9\n");
     printf("  sin(0) + cos(0)      = 1\n");
     printf("  sin(deg(90))         = 1\n");
+    printf("  c^2                  = 8.987551787e16\n");
     printf("  cos(pi)              = -1\n");
     printf("  sqrt(2^4 + 3^2)      = 5\n");
     printf("  log(100)             = 2\n");
