@@ -103,6 +103,42 @@ static int get_constant(const char* name, double* value) {
     return 0;
 }
 
+static int find_symbol_index(const CalculatorContext* context, const char* name, size_t* index) {
+    if (context == NULL) {
+        return 0;
+    }
+
+    for (size_t i = 0; i < context->count; i++) {
+        if (strcmp(context->symbols[i].name, name) == 0) {
+            *index = i;
+            return 1;
+        }
+    }
+
+    return 0;
+}
+
+static int get_context_symbol(Parser* parser, const char* name, double* value) {
+    size_t index = 0;
+    if (!find_symbol_index(parser->context, name, &index)) {
+        return 0;
+    }
+
+    const CalculatorSymbol* symbol = &parser->context->symbols[index];
+    *value = symbol->value;
+
+    if (parser->auto_update_var && symbol->kind == CALCULATOR_SYMBOL_VAR) {
+        if (!parser->has_mutable_reference) {
+            parser->has_mutable_reference = 1;
+            parser->mutable_reference_index = index;
+        } else if (parser->mutable_reference_index != index) {
+            parser->has_multiple_mutable_references = 1;
+        }
+    }
+
+    return 1;
+}
+
 static double parse_unary(Parser* parser);
 
 static double parse_primary(Parser* parser) {
@@ -137,8 +173,9 @@ static double parse_primary(Parser* parser) {
                               isnan(value) ? "Function result is undefined" : "Function result is outside supported range");
                 }
             }
-        } else if (!get_constant(identifier, &value)) {
-            set_error(parser, CALCULATOR_ERROR_SYNTAX, "Expected '(' after function name");
+        } else if (!get_constant(identifier, &value) &&
+                   !get_context_symbol(parser, identifier, &value)) {
+            set_error(parser, CALCULATOR_ERROR_SYNTAX, "Unknown identifier");
         }
     } else {
         set_error(parser, CALCULATOR_ERROR_SYNTAX, "Expected a number, function, or '('");

@@ -5,7 +5,7 @@
 
 #include "calculator/calculator.h"
 
-#define CALCULATOR_IDENTIFIER_SIZE 32
+#define CALCULATOR_IDENTIFIER_SIZE CALCULATOR_NAME_SIZE
 
 typedef enum {
     TOKEN_END = 0,
@@ -19,6 +19,7 @@ typedef enum {
     TOKEN_LPAREN,
     TOKEN_RPAREN,
     TOKEN_COMMA,
+    TOKEN_EQUAL,
     TOKEN_INVALID
 } TokenType;
 

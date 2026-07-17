@@ -15,6 +15,14 @@ static void set_error(CalculatorResult* result, CalculatorStatus status, const c
     result->error[CALCULATOR_ERROR_SIZE - 1] = '\0';
 }
 
+static int is_identifier_start(unsigned char c) {
+    return c == '_' || isalpha(c) || c >= 0x80;
+}
+
+static int is_identifier_part(unsigned char c) {
+    return c == '_' || isalnum(c) || c >= 0x80;
+}
+
 void lexer_init(Lexer* lexer, const char* input, CalculatorResult* result) {
     lexer->input = input;
     lexer->position = 0;
@@ -66,10 +74,10 @@ void lexer_next(Lexer* lexer) {
         return;
     }
 
-    if (isalpha((unsigned char)c)) {
+    if (is_identifier_start((unsigned char)c)) {
         size_t start = pos;
         size_t len = 0;
-        while (isalpha((unsigned char)input[pos])) {
+        while (is_identifier_part((unsigned char)input[pos])) {
             if (len + 1 >= CALCULATOR_IDENTIFIER_SIZE) {
                 lexer->current.type = TOKEN_INVALID;
                 set_error(lexer->result, CALCULATOR_ERROR_SYNTAX, "Identifier is too long");
@@ -94,6 +102,7 @@ void lexer_next(Lexer* lexer) {
         case '(': lexer->current.type = TOKEN_LPAREN; return;
         case ')': lexer->current.type = TOKEN_RPAREN; return;
         case ',': lexer->current.type = TOKEN_COMMA; return;
+        case '=': lexer->current.type = TOKEN_EQUAL; return;
         default:
             lexer->current.type = TOKEN_INVALID;
             set_error(lexer->result, CALCULATOR_ERROR_SYNTAX, "Unknown character");

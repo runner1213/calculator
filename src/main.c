@@ -26,6 +26,12 @@ static void print_help(void) {
     printf("  G         - gravitational constant, N*m^2/kg^2\n");
     printf("  h         - Planck constant, J*s\n");
     printf("  k         - Boltzmann constant, J/K\n");
+    printf("\nSession symbols:\n");
+    printf("  const name = expression  - set a constant value\n");
+    printf("  const name = null        - delete a constant value\n");
+    printf("  var name = expression    - set a mutable accumulator value\n");
+    printf("  var name = null          - delete a mutable accumulator value\n");
+    printf("  name = expression        - shorthand for const name = expression\n");
     printf("\nExamples:\n");
     printf("  sqrt(25)             = 5\n");
     printf("  2 + 3 * 4            = 14\n");
@@ -37,10 +43,44 @@ static void print_help(void) {
     printf("  cos(pi)              = -1\n");
     printf("  sqrt(2^4 + 3^2)      = 5\n");
     printf("  log(100)             = 2\n");
+    printf("  const rate = 6.09    - save session constant\n");
+    printf("  369 / rate           = 60.5911330049261\n");
+    printf("  var total = 10       - save session accumulator\n");
+    printf("  total + 5            = 15, then total becomes 15\n");
     printf("\nSpecial commands:\n");
     printf("  help - show this help\n");
     printf("  exit - quit program\n");
     printf("============================\n\n");
+}
+
+static void print_result(const CalculatorResult* result) {
+    if (result->status != CALCULATOR_OK) {
+        printf("Error: %s\n", result->error);
+        return;
+    }
+
+    switch (result->kind) {
+        case CALCULATOR_RESULT_CONST_SET:
+            printf("Set const: %s = %.15g\n", result->name, result->value);
+            break;
+        case CALCULATOR_RESULT_CONST_DELETED:
+            printf("Deleted const: %s\n", result->name);
+            break;
+        case CALCULATOR_RESULT_VAR_SET:
+            printf("Set var: %s = %.15g\n", result->name, result->value);
+            break;
+        case CALCULATOR_RESULT_VAR_DELETED:
+            printf("Deleted var: %s\n", result->name);
+            break;
+        case CALCULATOR_RESULT_VAR_UPDATED:
+            printf("Result: %.15g\n", result->value);
+            printf("Updated var: %s = %.15g\n", result->name, result->value);
+            break;
+        case CALCULATOR_RESULT_VALUE:
+        default:
+            printf("Result: %.15g\n", result->value);
+            break;
+    }
 }
 
 static char* read_dynamic_line(void) {
@@ -85,6 +125,9 @@ int main(void) {
     printf("Type 'help' for available commands and functions\n");
     printf("Type 'exit' to quit\n\n");
 
+    CalculatorContext context;
+    calculator_context_init(&context);
+
     while (1) {
         printf(">> ");
 
@@ -110,16 +153,13 @@ int main(void) {
             continue;
         }
 
-        const CalculatorResult result = calculator_evaluate(expression);
-        if (result.status == CALCULATOR_OK) {
-            printf("Result: %.15g\n", result.value);
-        } else {
-            printf("Error: %s\n", result.error);
-        }
+        const CalculatorResult result = calculator_context_evaluate(&context, expression);
+        print_result(&result);
 
         free(expression);
     }
 
+    calculator_context_free(&context);
     printf("Goodbye!\n");
     return 0;
 }
