@@ -1,5 +1,6 @@
 #include "parser.h"
 
+#include <float.h>
 #include <math.h>
 #include <stdio.h>
 #include <string.h>
@@ -141,6 +142,32 @@ static int get_context_symbol(Parser* parser, const char* name, double* value) {
 
 static double parse_unary(Parser* parser);
 
+static double apply_factorial(Parser* parser, double value) {
+    if (!isfinite(value)) {
+        set_error(parser, CALCULATOR_ERROR_DOMAIN, "Factorial argument must be finite");
+        return NAN;
+    }
+    if (value < 0.0 || floor(value) != value) {
+        set_error(parser, CALCULATOR_ERROR_DOMAIN, "Factorial argument must be a non-negative integer");
+        return NAN;
+    }
+    if (value > 170.0) {
+        set_error(parser, CALCULATOR_ERROR_OVERFLOW, "Factorial result is outside supported range");
+        return NAN;
+    }
+
+    double result = 1.0;
+    for (unsigned int i = 2; i <= (unsigned int)value; i++) {
+        if (result > DBL_MAX / (double)i) {
+            set_error(parser, CALCULATOR_ERROR_OVERFLOW, "Factorial result is outside supported range");
+            return NAN;
+        }
+        result *= (double)i;
+    }
+
+    return result;
+}
+
 static double parse_primary(Parser* parser) {
     if (!enter(parser)) {
         return NAN;
@@ -185,8 +212,18 @@ static double parse_primary(Parser* parser) {
     return value;
 }
 
+static double parse_postfix(Parser* parser) {
+    double value = parse_primary(parser);
+
+    while (parser->result->status == CALCULATOR_OK && accept(parser, TOKEN_BANG)) {
+        value = apply_factorial(parser, value);
+    }
+
+    return value;
+}
+
 static double parse_power(Parser* parser) {
-    double left = parse_primary(parser);
+    double left = parse_postfix(parser);
     if (parser->result->status != CALCULATOR_OK) {
         return NAN;
     }

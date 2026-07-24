@@ -101,6 +101,7 @@ void lexer_next(Lexer* lexer) {
         case '^': lexer->current.type = TOKEN_CARET; return;
         case '(': lexer->current.type = TOKEN_LPAREN; return;
         case ')': lexer->current.type = TOKEN_RPAREN; return;
+        case '!': lexer->current.type = TOKEN_BANG; return;
         case ',': lexer->current.type = TOKEN_COMMA; return;
         case '=': lexer->current.type = TOKEN_EQUAL; return;
         default:

@@ -9,6 +9,7 @@ static void print_help(void) {
     printf("Supported operations:\n");
     printf("  Basic: +  -  *  /\n");
     printf("  Power: ^ (example: 2^3 = 8)\n");
+    printf("  Factorial: ! (example: 5! = 120)\n");
     printf("  Parentheses: ( ) for grouping\n");
     printf("\nMathematical functions:\n");
     printf("  sqrt(x)   - square root\n");
@@ -36,6 +37,7 @@ static void print_help(void) {
     printf("  sqrt(25)             = 5\n");
     printf("  2 + 3 * 4            = 14\n");
     printf("  (2 + 3) * 4          = 20\n");
+    printf("  (2 + 3)!             = 120\n");
     printf("  2^3 + 1              = 9\n");
     printf("  sin(0) + cos(0)      = 1\n");
     printf("  sin(deg(90))         = 1\n");

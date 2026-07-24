@@ -18,6 +18,7 @@ typedef enum {
     TOKEN_CARET,
     TOKEN_LPAREN,
     TOKEN_RPAREN,
+    TOKEN_BANG,
     TOKEN_COMMA,
     TOKEN_EQUAL,
     TOKEN_INVALID
