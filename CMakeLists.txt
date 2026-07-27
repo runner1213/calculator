@@ -6,14 +6,40 @@ set(CMAKE_C_STANDARD_REQUIRED ON)
 
 add_library(calculator_core
         src/calculator.c
+        src/calculator_mpfr.c
         src/lexer.c
         src/lexer.h
+        src/lexer_mpfr.c
+        src/lexer_mpfr.h
         src/parser.c
         src/parser.h
+        src/parser_mpfr.c
+        src/parser_mpfr.h
         include/calculator/calculator.h
+        include/calculator/calculator_mpfr.h
         include/calculator/math_parser.h)
 
 target_include_directories(calculator_core PUBLIC include PRIVATE src)
+
+find_package(PkgConfig QUIET)
+if (PkgConfig_FOUND)
+    pkg_check_modules(MPFR QUIET IMPORTED_TARGET mpfr)
+endif ()
+
+if (MPFR_FOUND)
+    target_link_libraries(calculator_core PUBLIC PkgConfig::MPFR)
+else ()
+    find_path(MPFR_INCLUDE_DIR mpfr.h)
+    find_library(MPFR_LIBRARY NAMES mpfr)
+    find_library(GMP_LIBRARY NAMES gmp)
+
+    if (NOT MPFR_INCLUDE_DIR OR NOT MPFR_LIBRARY OR NOT GMP_LIBRARY)
+        message(FATAL_ERROR "MPFR and GMP are required. Install mpfr/gmp or make them visible to CMake.")
+    endif ()
+
+    target_include_directories(calculator_core PUBLIC ${MPFR_INCLUDE_DIR})
+    target_link_libraries(calculator_core PUBLIC ${MPFR_LIBRARY} ${GMP_LIBRARY})
+endif ()
 
 if (NOT MSVC)
     target_link_libraries(calculator_core PUBLIC m)

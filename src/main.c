@@ -3,6 +3,9 @@
 #include <string.h>
 
 #include "calculator/calculator.h"
+#include "calculator/calculator_mpfr.h"
+
+#define DEFAULT_DECIMAL_DIGITS 15
 
 static void print_help(void) {
     printf("\n=== MATH CALCULATOR HELP ===\n");
@@ -52,10 +55,37 @@ static void print_help(void) {
     printf("\nSpecial commands:\n");
     printf("  help - show this help\n");
     printf("  exit - quit program\n");
+    printf("\nPrecision suffix:\n");
+    printf("  expression:digits - print with digits after decimal point\n");
+    printf("  pi:80             - print pi with 80 digits after decimal point\n");
     printf("============================\n\n");
 }
 
-static void print_result(const CalculatorResult* result) {
+static void print_mpfr_value_default(const mpfr_t value) {
+    mpfr_printf("%.15Rg", value);
+}
+
+static void print_mpfr_value_fixed(const CalculatorMpfrResult* result, size_t digits_after_point) {
+    char* formatted = NULL;
+    const CalculatorStatus status = calculator_mpfr_result_format_fixed(result, digits_after_point, &formatted);
+    if (status != CALCULATOR_OK) {
+        printf("<format error>");
+        return;
+    }
+
+    printf("%s", formatted);
+    calculator_mpfr_free_string(formatted);
+}
+
+static void print_mpfr_value(const CalculatorMpfrResult* result, int fixed_digits, size_t digits_after_point) {
+    if (fixed_digits) {
+        print_mpfr_value_fixed(result, digits_after_point);
+    } else {
+        print_mpfr_value_default(result->value);
+    }
+}
+
+static void print_result(const CalculatorMpfrResult* result, int fixed_digits, size_t digits_after_point) {
     if (result->status != CALCULATOR_OK) {
         printf("Error: %s\n", result->error);
         return;
@@ -63,24 +93,34 @@ static void print_result(const CalculatorResult* result) {
 
     switch (result->kind) {
         case CALCULATOR_RESULT_CONST_SET:
-            printf("Set const: %s = %.15g\n", result->name, result->value);
+            printf("Set const: %s = ", result->name);
+            print_mpfr_value(result, fixed_digits, digits_after_point);
+            printf("\n");
             break;
         case CALCULATOR_RESULT_CONST_DELETED:
             printf("Deleted const: %s\n", result->name);
             break;
         case CALCULATOR_RESULT_VAR_SET:
-            printf("Set var: %s = %.15g\n", result->name, result->value);
+            printf("Set var: %s = ", result->name);
+            print_mpfr_value(result, fixed_digits, digits_after_point);
+            printf("\n");
             break;
         case CALCULATOR_RESULT_VAR_DELETED:
             printf("Deleted var: %s\n", result->name);
             break;
         case CALCULATOR_RESULT_VAR_UPDATED:
-            printf("Result: %.15g\n", result->value);
-            printf("Updated var: %s = %.15g\n", result->name, result->value);
+            printf("Result: ");
+            print_mpfr_value(result, fixed_digits, digits_after_point);
+            printf("\n");
+            printf("Updated var: %s = ", result->name);
+            print_mpfr_value(result, fixed_digits, digits_after_point);
+            printf("\n");
             break;
         case CALCULATOR_RESULT_VALUE:
         default:
-            printf("Result: %.15g\n", result->value);
+            printf("Result: ");
+            print_mpfr_value(result, fixed_digits, digits_after_point);
+            printf("\n");
             break;
     }
 }
@@ -123,12 +163,68 @@ static char* read_dynamic_line(void) {
     return NULL;
 }
 
+static int parse_precision_suffix(char* expression, size_t* digits_after_point) {
+    char* colon = strrchr(expression, ':');
+    if (colon == NULL) {
+        return 0;
+    }
+
+    char* digits = colon + 1;
+    while (*digits == ' ' || *digits == '\t') {
+        digits++;
+    }
+
+    if (*digits == '\0') {
+        return -1;
+    }
+
+    size_t value = 0;
+    while (*digits != '\0') {
+        if (*digits == ' ' || *digits == '\t') {
+            char* rest = digits;
+            while (*rest == ' ' || *rest == '\t') {
+                rest++;
+            }
+            if (*rest != '\0') {
+                return -1;
+            }
+            break;
+        }
+        if (*digits < '0' || *digits > '9') {
+            return -1;
+        }
+
+        const size_t digit = (size_t)(*digits - '0');
+        if (value > (((size_t)-1) - digit) / 10) {
+            return -1;
+        }
+        value = value * 10 + digit;
+        digits++;
+    }
+
+    char* end = colon;
+    while (end > expression && (end[-1] == ' ' || end[-1] == '\t')) {
+        end--;
+    }
+    *end = '\0';
+
+    if (expression[0] == '\0') {
+        return -1;
+    }
+
+    *digits_after_point = value;
+    return 1;
+}
+
 int main(void) {
     printf("Type 'help' for available commands and functions\n");
     printf("Type 'exit' to quit\n\n");
 
-    CalculatorContext context;
-    calculator_context_init(&context);
+    CalculatorMpfrContext context;
+    calculator_mpfr_context_init(
+        &context,
+        calculator_mpfr_precision_for_decimal_digits(DEFAULT_DECIMAL_DIGITS),
+        MPFR_RNDN);
 
     while (1) {
         printf(">> ");
@@ -155,13 +251,28 @@ int main(void) {
             continue;
         }
 
-        const CalculatorResult result = calculator_context_evaluate(&context, expression);
-        print_result(&result);
+        size_t digits_after_point = DEFAULT_DECIMAL_DIGITS;
+        const int has_precision_suffix = parse_precision_suffix(expression, &digits_after_point);
+        if (has_precision_suffix < 0) {
+            printf("Error: invalid precision suffix\n");
+            free(expression);
+            continue;
+        }
+
+        calculator_mpfr_context_set_precision(
+            &context,
+            calculator_mpfr_precision_for_decimal_digits(digits_after_point));
+
+        CalculatorMpfrResult result;
+        calculator_mpfr_result_init(&result, context.precision);
+        calculator_mpfr_context_evaluate(&context, expression, &result);
+        print_result(&result, has_precision_suffix > 0, digits_after_point);
+        calculator_mpfr_result_clear(&result);
 
         free(expression);
     }
 
-    calculator_context_free(&context);
+    calculator_mpfr_context_free(&context);
     printf("Goodbye!\n");
     return 0;
 }
