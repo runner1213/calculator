@@ -532,128 +532,22 @@ CalculatorStatus calculator_mpfr_result_format_fixed(const CalculatorMpfrResult*
         return *output == NULL ? CALCULATOR_ERROR_MEMORY : CALCULATOR_OK;
     }
 
-    if (digits_after_point > (size_t)ULONG_MAX || digits_after_point > ((size_t)-1) - 3) {
+    if (digits_after_point > (size_t)INT_MAX) {
         return CALCULATOR_ERROR_MEMORY;
     }
 
-    mpfr_exp_t decimal_exponent = 0;
-    char* exponent_probe = mpfr_get_str(NULL, &decimal_exponent, 10, 1, result->value, MPFR_RNDN);
-    if (exponent_probe == NULL) {
-        return CALCULATOR_ERROR_MEMORY;
-    }
-    mpfr_free_str(exponent_probe);
-
-    size_t integer_digits = 0;
-    if (decimal_exponent > 0) {
-        if ((long double)decimal_exponent > (long double)(((size_t)-1) - digits_after_point)) {
-            return CALCULATOR_ERROR_MEMORY;
-        }
-        integer_digits = (size_t)decimal_exponent;
-    }
-
-    const mpfr_prec_t format_precision =
-        calculator_mpfr_precision_for_decimal_digits(digits_after_point + integer_digits);
-    mpfr_t scaled;
-    mpfr_t scale;
-    mpfr_init2(scaled, format_precision);
-    mpfr_init2(scale, format_precision);
-
-    mpfr_abs(scaled, result->value, MPFR_RNDN);
-    mpfr_ui_pow_ui(scale, 10, (unsigned long)digits_after_point, MPFR_RNDN);
-    mpfr_mul(scaled, scaled, scale, MPFR_RNDN);
-    mpfr_rint(scaled, scaled, MPFR_RNDN);
-
-    if (mpfr_zero_p(scaled)) {
-        const size_t total = digits_after_point == 0 ? 2 : digits_after_point + 3;
-        char* text = malloc(total);
-        if (text == NULL) {
-            mpfr_clear(scale);
-            mpfr_clear(scaled);
-            return CALCULATOR_ERROR_MEMORY;
-        }
-        text[0] = '0';
-        if (digits_after_point > 0) {
-            text[1] = '.';
-            memset(text + 2, '0', digits_after_point);
-            text[digits_after_point + 2] = '\0';
-        } else {
-            text[1] = '\0';
-        }
-        *output = text;
-        mpfr_clear(scale);
-        mpfr_clear(scaled);
-        return CALCULATOR_OK;
-    }
-
-    mpfr_exp_t exponent = 0;
-    char* digits = mpfr_get_str(NULL, &exponent, 10, 0, scaled, MPFR_RNDZ);
-    if (digits == NULL) {
-        mpfr_clear(scale);
-        mpfr_clear(scaled);
+    char* formatted = NULL;
+    if (mpfr_asprintf(&formatted, "%.*Rf", (int)digits_after_point, result->value) < 0 ||
+        formatted == NULL) {
         return CALCULATOR_ERROR_MEMORY;
     }
 
-    const size_t digits_length = strlen(digits);
-    size_t scaled_length = digits_length;
-    if (exponent > 0 && (long double)exponent > (long double)digits_length) {
-        if ((long double)exponent > (long double)((size_t)-1)) {
-            mpfr_free_str(digits);
-            mpfr_clear(scale);
-            mpfr_clear(scaled);
-            return CALCULATOR_ERROR_MEMORY;
-        }
-        scaled_length = (size_t)exponent;
-    }
-
-    const int is_negative = mpfr_sgn(result->value) < 0;
-    const size_t sign_length = is_negative ? 1 : 0;
-    const size_t integer_length = scaled_length > digits_after_point ? scaled_length - digits_after_point : 1;
-    const size_t fractional_padding = scaled_length < digits_after_point ? digits_after_point - scaled_length : 0;
-    size_t total = sign_length + integer_length + 1;
-    if (digits_after_point > 0) {
-        if (total > ((size_t)-1) - 1 - digits_after_point) {
-            mpfr_free_str(digits);
-            mpfr_clear(scale);
-            mpfr_clear(scaled);
-            return CALCULATOR_ERROR_MEMORY;
-        }
-        total += 1 + digits_after_point;
-    }
-
-    char* text = malloc(total);
+    char* text = duplicate_string(formatted);
+    mpfr_free_str(formatted);
     if (text == NULL) {
-        mpfr_free_str(digits);
-        mpfr_clear(scale);
-        mpfr_clear(scaled);
         return CALCULATOR_ERROR_MEMORY;
     }
 
-    size_t out = 0;
-    if (is_negative) {
-        text[out++] = '-';
-    }
-    if (scaled_length > digits_after_point) {
-        const size_t count = scaled_length - digits_after_point;
-        for (size_t i = 0; i < count; i++) {
-            text[out++] = i < digits_length ? digits[i] : '0';
-        }
-    } else {
-        text[out++] = '0';
-    }
-    if (digits_after_point > 0) {
-        text[out++] = '.';
-        memset(text + out, '0', fractional_padding);
-        out += fractional_padding;
-        const size_t fractional_start = scaled_length > digits_after_point ? scaled_length - digits_after_point : 0;
-        for (size_t i = fractional_start; i < scaled_length; i++) {
-            text[out++] = i < digits_length ? digits[i] : '0';
-        }
-    }
-    text[out] = '\0';
-
-    mpfr_free_str(digits);
-    mpfr_clear(scale);
-    mpfr_clear(scaled);
     *output = text;
     return CALCULATOR_OK;
 }
