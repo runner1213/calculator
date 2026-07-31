@@ -1,72 +1,100 @@
-## === MATH CALCULATOR HELP ===
-### Supported operations:
-- Basic: +  -  *  /
-- Power: ^ (example: 2^3 = 8)
-- Factorial: ! (example: 5! = 120)
-- Parentheses: ( ) for grouping
+## Math Calculator
 
-### Mathematical functions:
-- `sqrt(x)`   - square root
-- `sin(x)`    - sine (radians)
-- `cos(x)`    - cosine (radians)
-- `tan(x)`    - tangent (radians)
-- `log(x)`    - base-10 logarithm
-- `ln(x)`     - natural logarithm
-- `abs(x)`    - absolute value
-- `exp(x)`    - exponential
-- `deg(x)`    - convert degrees to radians
+### Supported operations
+- Basic: `+` `-` `*` `/`
+- Power: `^` (example: `2^3 = 8`)
+- Factorial: `!` (example: `5! = 120`)
+- Parentheses: `( )` for grouping
 
-### Constants:
-- `pi`        - 3.141592653589793...
-- `c`         - speed of light in vacuum, m/s
-- `G`         - gravitational constant, N*m^2/kg^2
-- `h`         - Planck constant, J*s
-- `k`         - Boltzmann constant, J/K
+### Mathematical functions
+- `sqrt(x)` - square root
+- `sin(x)` - sine in radians
+- `cos(x)` - cosine in radians
+- `tan(x)` - tangent in radians
+- `log(x)` - base-10 logarithm
+- `ln(x)` - natural logarithm
+- `abs(x)` - absolute value
+- `exp(x)` - exponential
+- `deg(x)` or `degrees(x)` - convert degrees to radians
 
-### Session symbols:
-- `const name = expression`  - set a constant value
-- `const name = null `       - delete a constant value
-- `var name = expression`    - set a mutable accumulator value
-- `var name = null`          - delete a mutable accumulator value
-- `name = expression`        - shorthand for const name = expression
+### Built-in constants
+- `pi` - 3.141592653589793...
+- `ans` - previous successful result in the current session
+- `c` - speed of light in vacuum, m/s
+- `G` - gravitational constant, N*m^2/kg^2
+- `h` - Planck constant, J*s
+- `k` - Boltzmann constant, J/K
 
-## Examples:
-- `sqrt(25)`             = 5
-- `2 + 3 * 4`            = 14
-- `(2 + 3) * 4`          = 20
-- `(2 + 3)!`             = 120
-- `2^3 + 1`              = 9
-- `sin(0) + cos(0)`      = 1
-- `sin(deg(90))`         = 1
-- `c^2`                  = 8.987551787e16
-- `cos(pi)`              = -1
-- `sqrt(2^4 + 3^2)`      = 5
-- `log(100)`             = 2
-- `const rate = 6.09`    - save session constant
-- `369 / rate`           = 60.5911330049261
-- `var total = 10`       - save session accumulator
-- `total + 5`            = 15, then total becomes 15
+### Session symbols
+- `const name = expression` - set a recalculated session constant.
+- `const name = null` - delete a constant.
+- `var name = expression` - set a mutable accumulator value.
+- `var name = null` - delete a mutable accumulator.
+- `name = expression` - shorthand for `const name = expression`.
 
-### Special commands:
-- `help` - show this help
-- `exit` - quit program
+Constants store the original right-hand expression and are recalculated when the MPFR precision changes. For example, `const p = pi` followed by `p:100` recalculates `p` at the higher precision before printing.
 
-### MPFR precision:
-- The CLI uses the MPFR backend.
-- Add `:digits` to the end of an input line to print a fixed number of digits after the decimal point.
+Variables store the current numeric value. They do not keep a source expression, so their meaningful precision is fixed by the assignment or accumulator update that produced them.
+
+### Interactive commands
+- `help` - show help.
+- `exit` - quit.
+- `:precision digits` - set the default evaluation precision in decimal digits.
+- `:format general` - print significant digits.
+- `:format scientific` - print scientific notation.
+- `:format fixed digits` - print fixed digits after the decimal point.
+- `:vars` - list current session symbols and stored constant sources.
+- `:clear` - clear all session symbols, including `ans`.
+
+Formatting changes output only. Use `:precision digits`, `--precision digits`, or a per-line `expression:digits` suffix when you need more evaluation precision.
+
+### Precision suffix
+- `expression:digits` evaluates and prints one line in fixed format with `digits` digits after the decimal point.
 - The suffix is CLI-only and is not part of the expression grammar.
 - Examples:
   - `pi:80`
   - `1 / 3:50`
-  - `const p = pi:100`
+  - `const p = pi`
+  - `p:100`
 
-### C API:
+### Command line
+
+Run the interactive shell:
+
+```sh
+calculator
+```
+
+Evaluate one expression:
+
+```sh
+calculator -e "sin(pi/7)" --precision 200
+```
+
+Evaluate a file line by line:
+
+```sh
+calculator --file calculations.txt
+```
+
+Options:
+- `--precision digits` sets the default evaluation precision before processing `-e` or `--file`.
+- `--format general` uses significant-digit output.
+- `--format scientific` uses scientific notation.
+- `--format fixed digits` uses fixed decimal output.
+
+Lines in `--file` may contain shell commands such as `:precision 200`, expressions, and `//` comments.
+
+### C API
 - The old `double` API remains available:
   - `calculator_evaluate(expression)`
   - `calculator_context_evaluate(context, expression)`
   - `parser(expression)`
 - MPFR API is available through `include/calculator/calculator_mpfr.h`.
 - Result values are stored in `mpfr_t`, so callers initialize and clear `CalculatorMpfrResult`.
+- `calculator_mpfr_context_set_precision_checked(context, precision, result)` changes context precision and refreshes stored constants that have source expressions.
+- `calculator_mpfr_context_clear_symbols(context)` removes all session symbols.
+- `calculator_mpfr_context_set_ans(context, value, result)` updates the internal `ans` symbol.
 - Fixed decimal output uses function parameters instead of the CLI `:digits` suffix:
 
 ```c
@@ -95,5 +123,3 @@ calculator_mpfr_free_string(output);
 calculator_mpfr_result_clear(&result);
 calculator_mpfr_context_free(&context);
 ```
-
-============================

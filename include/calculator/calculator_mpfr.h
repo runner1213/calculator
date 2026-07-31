@@ -13,6 +13,7 @@ extern "C" {
 
 typedef struct {
     char* name;
+    char* source_expression;
     mpfr_t value;
     CalculatorSymbolKind kind;
 } CalculatorMpfrSymbol;
@@ -40,7 +41,15 @@ void calculator_mpfr_context_init(CalculatorMpfrContext* context,
                                   mpfr_rnd_t rounding);
 void calculator_mpfr_context_set_precision(CalculatorMpfrContext* context,
                                            mpfr_prec_t precision);
+CalculatorStatus calculator_mpfr_context_set_precision_checked(CalculatorMpfrContext* context,
+                                                               mpfr_prec_t precision,
+                                                               CalculatorMpfrResult* result);
+void calculator_mpfr_context_clear_symbols(CalculatorMpfrContext* context);
 void calculator_mpfr_context_free(CalculatorMpfrContext* context);
+
+CalculatorStatus calculator_mpfr_context_set_ans(CalculatorMpfrContext* context,
+                                                 const mpfr_t value,
+                                                 CalculatorMpfrResult* result);
 
 void calculator_mpfr_result_init(CalculatorMpfrResult* result,
                                  mpfr_prec_t precision);

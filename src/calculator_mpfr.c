@@ -1,6 +1,7 @@
 #include "calculator/calculator_mpfr.h"
 
 #include <limits.h>
+#include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 
@@ -87,19 +88,49 @@ void calculator_mpfr_context_set_precision(CalculatorMpfrContext* context,
     context->precision = precision;
 }
 
-void calculator_mpfr_context_free(CalculatorMpfrContext* context) {
+static CalculatorStatus refresh_constants(CalculatorMpfrContext* context,
+                                          CalculatorMpfrResult* result);
+
+CalculatorStatus calculator_mpfr_context_set_precision_checked(CalculatorMpfrContext* context,
+                                                               mpfr_prec_t precision,
+                                                               CalculatorMpfrResult* result) {
+    if (result == NULL) {
+        return CALCULATOR_ERROR_MEMORY;
+    }
+
+    init_result_fields(result);
+    if (context == NULL) {
+        set_error(result, CALCULATOR_ERROR_SYNTAX, "Calculator context is NULL");
+        return result->status;
+    }
+
+    context->precision = precision;
+    return refresh_constants(context, result);
+}
+
+void calculator_mpfr_context_clear_symbols(CalculatorMpfrContext* context) {
     if (context == NULL) {
         return;
     }
 
     for (size_t i = 0; i < context->count; i++) {
         free(context->symbols[i].name);
+        free(context->symbols[i].source_expression);
         mpfr_clear(context->symbols[i].value);
     }
 
+    context->count = 0;
+}
+
+void calculator_mpfr_context_free(CalculatorMpfrContext* context) {
+    if (context == NULL) {
+        return;
+    }
+
+    calculator_mpfr_context_clear_symbols(context);
+
     free(context->symbols);
     context->symbols = NULL;
-    context->count = 0;
     context->capacity = 0;
 }
 
@@ -138,7 +169,7 @@ static int find_symbol_index(const CalculatorMpfrContext* context, const char* n
 
 static int is_builtin_or_keyword(const char* name) {
     static const char* reserved[] = {
-        "abs", "const", "cos", "deg", "degrees", "exp", "ln", "log",
+        "abs", "ans", "const", "cos", "deg", "degrees", "exp", "ln", "log",
         "null", "sin", "sqrt", "tan", "var",
         "G", "c", "h", "k", "pi"
     };
@@ -186,22 +217,36 @@ static CalculatorStatus set_symbol(CalculatorMpfrContext* context,
                                    const char* name,
                                    const mpfr_t value,
                                    CalculatorSymbolKind kind,
+                                   const char* source_expression,
+                                   int allow_reserved,
                                    CalculatorMpfrResult* result) {
-    if (is_builtin_or_keyword(name)) {
+    if (!allow_reserved && is_builtin_or_keyword(name)) {
         set_error(result, CALCULATOR_ERROR_SYNTAX, "Cannot use reserved name");
         return result->status;
+    }
+
+    char* expression_copy = NULL;
+    if (kind == CALCULATOR_SYMBOL_CONST && source_expression != NULL) {
+        expression_copy = duplicate_string(source_expression);
+        if (expression_copy == NULL) {
+            set_error(result, CALCULATOR_ERROR_MEMORY, "Cannot allocate constant expression");
+            return result->status;
+        }
     }
 
     size_t index = 0;
     if (find_symbol_index(context, name, &index)) {
         CalculatorMpfrSymbol* symbol = &context->symbols[index];
         if (symbol->kind != kind) {
+            free(expression_copy);
             set_error(result, CALCULATOR_ERROR_SYNTAX, "Name already exists with another symbol kind");
             return result->status;
         }
 
         mpfr_prec_round(symbol->value, context->precision, context->rounding);
         mpfr_set(symbol->value, value, context->rounding);
+        free(symbol->source_expression);
+        symbol->source_expression = expression_copy;
         mpfr_set(result->value, value, context->rounding);
         set_result_name(result, name);
         set_kind_result(result, kind, 0);
@@ -214,12 +259,14 @@ static CalculatorStatus set_symbol(CalculatorMpfrContext* context,
 
     char* name_copy = duplicate_string(name);
     if (name_copy == NULL) {
+        free(expression_copy);
         set_error(result, CALCULATOR_ERROR_MEMORY, "Cannot allocate symbol name");
         return result->status;
     }
 
     CalculatorMpfrSymbol* symbol = &context->symbols[context->count];
     symbol->name = name_copy;
+    symbol->source_expression = expression_copy;
     symbol->kind = kind;
     mpfr_init2(symbol->value, context->precision);
     mpfr_set(symbol->value, value, context->rounding);
@@ -247,6 +294,7 @@ static CalculatorStatus delete_symbol(CalculatorMpfrContext* context,
     }
 
     free(context->symbols[index].name);
+    free(context->symbols[index].source_expression);
     mpfr_clear(context->symbols[index].value);
     if (index + 1 < context->count) {
         memmove(&context->symbols[index],
@@ -301,6 +349,58 @@ static CalculatorStatus evaluate_expression(CalculatorMpfrContext* context,
     }
 
     return result->status;
+}
+
+static CalculatorStatus refresh_constants(CalculatorMpfrContext* context,
+                                          CalculatorMpfrResult* result) {
+    if (context == NULL) {
+        set_error(result, CALCULATOR_ERROR_SYNTAX, "Calculator context is NULL");
+        return result->status;
+    }
+
+    for (size_t i = 0; i < context->count; i++) {
+        CalculatorMpfrSymbol* symbol = &context->symbols[i];
+        if (symbol->kind != CALCULATOR_SYMBOL_CONST || symbol->source_expression == NULL) {
+            mpfr_prec_round(symbol->value, context->precision, context->rounding);
+            continue;
+        }
+
+        CalculatorMpfrResult value_result;
+        calculator_mpfr_result_init(&value_result, context->precision);
+        evaluate_expression(context, symbol->source_expression, 0, &value_result);
+        if (value_result.status != CALCULATOR_OK) {
+            result->status = value_result.status;
+            snprintf(result->error, CALCULATOR_ERROR_SIZE,
+                     "Cannot refresh const '%s': %s",
+                     symbol->name,
+                     value_result.error);
+            mpfr_set_nan(result->value);
+            calculator_mpfr_result_clear(&value_result);
+            return result->status;
+        }
+
+        mpfr_prec_round(symbol->value, context->precision, context->rounding);
+        mpfr_set(symbol->value, value_result.value, context->rounding);
+        calculator_mpfr_result_clear(&value_result);
+    }
+
+    return result->status;
+}
+
+CalculatorStatus calculator_mpfr_context_set_ans(CalculatorMpfrContext* context,
+                                                 const mpfr_t value,
+                                                 CalculatorMpfrResult* result) {
+    if (result == NULL) {
+        return CALCULATOR_ERROR_MEMORY;
+    }
+
+    init_result_fields(result);
+    if (context == NULL) {
+        set_error(result, CALCULATOR_ERROR_SYNTAX, "Calculator context is NULL");
+        return result->status;
+    }
+
+    return set_symbol(context, "ans", value, CALCULATOR_SYMBOL_CONST, NULL, 1, result);
 }
 
 static int parse_assignment_header(const char* input,
@@ -447,7 +547,13 @@ CalculatorStatus calculator_mpfr_context_evaluate(CalculatorMpfrContext* context
         return result->status;
     }
 
-    const CalculatorStatus status = set_symbol(context, assignment.name, value_result.value, assignment.kind, result);
+    const CalculatorStatus status = set_symbol(context,
+                                               assignment.name,
+                                               value_result.value,
+                                               assignment.kind,
+                                               assignment.expression,
+                                               0,
+                                               result);
     calculator_mpfr_result_clear(&value_result);
     return status;
 }
@@ -496,11 +602,15 @@ CalculatorStatus calculator_mpfr_context_evaluate_fixed(CalculatorMpfrContext* c
         return result->status;
     }
 
-    calculator_mpfr_context_set_precision(
+    CalculatorStatus status = calculator_mpfr_context_set_precision_checked(
         context,
-        calculator_mpfr_precision_for_decimal_digits(digits_after_point));
+        calculator_mpfr_precision_for_decimal_digits(digits_after_point),
+        result);
+    if (status != CALCULATOR_OK) {
+        return status;
+    }
 
-    CalculatorStatus status = calculator_mpfr_context_evaluate(context, expression, result);
+    status = calculator_mpfr_context_evaluate(context, expression, result);
     if (status != CALCULATOR_OK ||
         result->kind == CALCULATOR_RESULT_CONST_DELETED ||
         result->kind == CALCULATOR_RESULT_VAR_DELETED) {
