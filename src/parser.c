@@ -44,6 +44,22 @@ static int accept(Parser* parser, TokenType type) {
     return 1;
 }
 
+static int is_nan_double(double value) {
+#if defined(__GNUC__) || defined(__clang__)
+    return __builtin_isnan(value);
+#else
+    return value != value;
+#endif
+}
+
+static int is_finite_double(double value) {
+#if defined(__GNUC__) || defined(__clang__)
+    return __builtin_isfinite(value);
+#else
+    return value >= -DBL_MAX && value <= DBL_MAX;
+#endif
+}
+
 static double apply_function(Parser* parser, const char* name, double arg) {
     if (strcmp(name, "deg") == 0 || strcmp(name, "degrees") == 0) {
         return arg * CALCULATOR_PI / 180.0;
@@ -143,7 +159,7 @@ static int get_context_symbol(Parser* parser, const char* name, double* value) {
 static double parse_unary(Parser* parser);
 
 static double apply_factorial(Parser* parser, double value) {
-    if (!isfinite(value)) {
+    if (!is_finite_double(value)) {
         set_error(parser, CALCULATOR_ERROR_DOMAIN, "Factorial argument must be finite");
         return NAN;
     }
@@ -195,9 +211,9 @@ static double parse_primary(Parser* parser) {
             }
             if (parser->result->status == CALCULATOR_OK) {
                 value = apply_function(parser, identifier, arg);
-                if (parser->result->status == CALCULATOR_OK && !isfinite(value)) {
-                    set_error(parser, isnan(value) ? CALCULATOR_ERROR_DOMAIN : CALCULATOR_ERROR_OVERFLOW,
-                              isnan(value) ? "Function result is undefined" : "Function result is outside supported range");
+                if (parser->result->status == CALCULATOR_OK && !is_finite_double(value)) {
+                    set_error(parser, is_nan_double(value) ? CALCULATOR_ERROR_DOMAIN : CALCULATOR_ERROR_OVERFLOW,
+                              is_nan_double(value) ? "Function result is undefined" : "Function result is outside supported range");
                 }
             }
         } else if (!get_constant(identifier, &value) &&
@@ -234,9 +250,9 @@ static double parse_power(Parser* parser) {
             return NAN;
         }
         left = pow(left, right);
-        if (!isfinite(left)) {
-            set_error(parser, isnan(left) ? CALCULATOR_ERROR_DOMAIN : CALCULATOR_ERROR_OVERFLOW,
-                      isnan(left) ? "Power result is undefined" : "Power result is outside supported range");
+        if (!is_finite_double(left)) {
+            set_error(parser, is_nan_double(left) ? CALCULATOR_ERROR_DOMAIN : CALCULATOR_ERROR_OVERFLOW,
+                      is_nan_double(left) ? "Power result is undefined" : "Power result is outside supported range");
             return NAN;
         }
     }
@@ -275,7 +291,7 @@ static double parse_factor(Parser* parser) {
             }
             left /= right;
         }
-        if (!isfinite(left)) {
+        if (!is_finite_double(left)) {
             set_error(parser, CALCULATOR_ERROR_OVERFLOW, "Arithmetic result is outside supported range");
             return NAN;
         }
@@ -297,7 +313,7 @@ double parse_expression(Parser* parser) {
             return NAN;
         }
         left = (op == TOKEN_PLUS) ? left + right : left - right;
-        if (!isfinite(left)) {
+        if (!is_finite_double(left)) {
             set_error(parser, CALCULATOR_ERROR_OVERFLOW, "Arithmetic result is outside supported range");
             return NAN;
         }
