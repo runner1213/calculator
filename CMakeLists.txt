@@ -76,7 +76,7 @@ else ()
         message(FATAL_ERROR "MPFR and GMP are required. Install mpfr/gmp or make them visible to CMake.")
     endif ()
 
-    target_include_directories(calculator_core PUBLIC ${MPFR_INCLUDE_DIR})
+    target_include_directories(calculator_core SYSTEM PUBLIC ${MPFR_INCLUDE_DIR})
     if (CALCULATOR_USE_STATIC_MPFR)
         target_compile_definitions(calculator_core PUBLIC GMP_STATICLIB)
     endif ()

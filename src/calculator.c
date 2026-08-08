@@ -8,7 +8,6 @@
 #include "parser.h"
 
 typedef struct {
-    int is_assignment;
     CalculatorSymbolKind kind;
     char name[CALCULATOR_NAME_SIZE];
     const char* expression;
@@ -110,8 +109,14 @@ static int ensure_capacity(CalculatorContext* context, CalculatorResult* result)
         return 1;
     }
 
+    const size_t max_capacity = (size_t)-1 / sizeof(*context->symbols);
+    if (context->capacity > max_capacity / 2) {
+        set_error(result, CALCULATOR_ERROR_MEMORY, "Too many session symbols");
+        return 0;
+    }
+
     const size_t new_capacity = context->capacity == 0 ? 8 : context->capacity * 2;
-    if (new_capacity < context->capacity) {
+    if (new_capacity > max_capacity) {
         set_error(result, CALCULATOR_ERROR_MEMORY, "Too many session symbols");
         return 0;
     }
@@ -258,7 +263,6 @@ static CalculatorResult evaluate_expression(CalculatorContext* context,
 }
 
 static int parse_assignment_header(const char* input, Assignment* assignment, CalculatorResult* result) {
-    assignment->is_assignment = 0;
     assignment->kind = CALCULATOR_SYMBOL_CONST;
     assignment->name[0] = '\0';
     assignment->expression = NULL;
@@ -278,7 +282,6 @@ static int parse_assignment_header(const char* input, Assignment* assignment, Ca
     }
 
     if (strcmp(first, "const") == 0 || strcmp(first, "var") == 0) {
-        assignment->is_assignment = 1;
         assignment->kind = strcmp(first, "var") == 0 ? CALCULATOR_SYMBOL_VAR : CALCULATOR_SYMBOL_CONST;
 
         if (lexer.current.type != TOKEN_IDENTIFIER) {
@@ -307,7 +310,6 @@ static int parse_assignment_header(const char* input, Assignment* assignment, Ca
         return 0;
     }
 
-    assignment->is_assignment = 1;
     assignment->kind = CALCULATOR_SYMBOL_CONST;
     strncpy(assignment->name, first, CALCULATOR_NAME_SIZE - 1);
     assignment->name[CALCULATOR_NAME_SIZE - 1] = '\0';

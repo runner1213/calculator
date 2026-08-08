@@ -10,7 +10,6 @@
 #include "parser_mpfr.h"
 
 typedef struct {
-    int is_assignment;
     CalculatorSymbolKind kind;
     char name[CALCULATOR_NAME_SIZE];
     const char* expression;
@@ -71,9 +70,17 @@ static CalculatorStatus allocate_text(size_t length, char** output) {
 }
 
 static void free_gmp_string(char* value) {
+    if (value == NULL) {
+        return;
+    }
+
     void (*free_function)(void*, size_t) = NULL;
     mp_get_memory_functions(NULL, NULL, &free_function);
-    free_function(value, strlen(value) + 1);
+    if (free_function != NULL) {
+        free_function(value, strlen(value) + 1);
+    } else {
+        free(value);
+    }
 }
 
 mpfr_prec_t calculator_mpfr_precision_for_decimal_digits(size_t digits_after_point) {
@@ -214,8 +221,14 @@ static int ensure_capacity(CalculatorMpfrContext* context, CalculatorMpfrResult*
         return 1;
     }
 
+    const size_t max_capacity = (size_t)-1 / sizeof(*context->symbols);
+    if (context->capacity > max_capacity / 2) {
+        set_error(result, CALCULATOR_ERROR_MEMORY, "Too many session symbols");
+        return 0;
+    }
+
     const size_t new_capacity = context->capacity == 0 ? 8 : context->capacity * 2;
-    if (new_capacity < context->capacity) {
+    if (new_capacity > max_capacity) {
         set_error(result, CALCULATOR_ERROR_MEMORY, "Too many session symbols");
         return 0;
     }
@@ -432,7 +445,6 @@ CalculatorStatus calculator_mpfr_context_set_ans(CalculatorMpfrContext* context,
 static int parse_assignment_header(const char* input,
                                    MpfrAssignment* assignment,
                                    CalculatorMpfrResult* result) {
-    assignment->is_assignment = 0;
     assignment->kind = CALCULATOR_SYMBOL_CONST;
     assignment->name[0] = '\0';
     assignment->expression = NULL;
@@ -452,7 +464,6 @@ static int parse_assignment_header(const char* input,
     }
 
     if (strcmp(first, "const") == 0 || strcmp(first, "var") == 0) {
-        assignment->is_assignment = 1;
         assignment->kind = strcmp(first, "var") == 0 ? CALCULATOR_SYMBOL_VAR : CALCULATOR_SYMBOL_CONST;
 
         if (lexer.current.type != MPFR_TOKEN_IDENTIFIER) {
@@ -481,7 +492,6 @@ static int parse_assignment_header(const char* input,
         return 0;
     }
 
-    assignment->is_assignment = 1;
     assignment->kind = CALCULATOR_SYMBOL_CONST;
     strncpy(assignment->name, first, CALCULATOR_NAME_SIZE - 1);
     assignment->name[CALCULATOR_NAME_SIZE - 1] = '\0';
@@ -678,7 +688,7 @@ CalculatorStatus calculator_mpfr_result_format_fixed(const CalculatorMpfrResult*
     mpz_init(scaled_integer);
     mpz_ui_pow_ui(scale, 10, (unsigned long)digits_after_point);
 
-    const mp_bitcnt_t scale_bits = mpz_sizeinbase(scale, 2);
+    const size_t scale_bits = mpz_sizeinbase(scale, 2);
     mpfr_prec_t scaled_precision = mpfr_get_prec(result->value);
     if ((long double)scaled_precision + (long double)scale_bits + 8.0L >
         (long double)MPFR_PREC_MAX) {

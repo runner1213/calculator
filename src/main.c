@@ -19,7 +19,6 @@ typedef struct {
     size_t precision_digits;
     OutputFormat format;
     size_t fixed_digits;
-    int quiet;
 } CalculatorShell;
 
 typedef enum {
@@ -316,12 +315,9 @@ static void print_mpfr_value_general_raw(const mpfr_t value, size_t significant_
     mpfr_free_str(raw_digits);
 }
 
-static void print_mpfr_value_raw(const CalculatorShell* shell,
-                                 const mpfr_t value,
+static void print_mpfr_value_raw(const mpfr_t value,
                                  OutputFormat override_format,
                                  size_t override_digits) {
-    (void)shell;
-
     switch (override_format) {
         case OUTPUT_FORMAT_FIXED:
             print_mpfr_value_fixed_raw(value, override_digits);
@@ -336,15 +332,13 @@ static void print_mpfr_value_raw(const CalculatorShell* shell,
     }
 }
 
-static void print_mpfr_value(const CalculatorShell* shell,
-                             const CalculatorMpfrResult* result,
+static void print_mpfr_value(const CalculatorMpfrResult* result,
                              OutputFormat override_format,
                              size_t override_digits) {
-    print_mpfr_value_raw(shell, result->value, override_format, override_digits);
+    print_mpfr_value_raw(result->value, override_format, override_digits);
 }
 
-static void print_result(const CalculatorShell* shell,
-                         const CalculatorMpfrResult* result,
+static void print_result(const CalculatorMpfrResult* result,
                          OutputFormat output_format,
                          size_t output_digits) {
     if (result->status != CALCULATOR_OK) {
@@ -355,7 +349,7 @@ static void print_result(const CalculatorShell* shell,
     switch (result->kind) {
         case CALCULATOR_RESULT_CONST_SET:
             printf("Set const: %s = ", result->name);
-            print_mpfr_value(shell, result, output_format, output_digits);
+            print_mpfr_value(result, output_format, output_digits);
             printf("\n");
             break;
         case CALCULATOR_RESULT_CONST_DELETED:
@@ -363,7 +357,7 @@ static void print_result(const CalculatorShell* shell,
             break;
         case CALCULATOR_RESULT_VAR_SET:
             printf("Set var: %s = ", result->name);
-            print_mpfr_value(shell, result, output_format, output_digits);
+            print_mpfr_value(result, output_format, output_digits);
             printf("\n");
             break;
         case CALCULATOR_RESULT_VAR_DELETED:
@@ -371,16 +365,16 @@ static void print_result(const CalculatorShell* shell,
             break;
         case CALCULATOR_RESULT_VAR_UPDATED:
             printf("Result: ");
-            print_mpfr_value(shell, result, output_format, output_digits);
+            print_mpfr_value(result, output_format, output_digits);
             printf("\n");
             printf("Updated var: %s = ", result->name);
-            print_mpfr_value(shell, result, output_format, output_digits);
+            print_mpfr_value(result, output_format, output_digits);
             printf("\n");
             break;
         case CALCULATOR_RESULT_VALUE:
         default:
             printf("Result: ");
-            print_mpfr_value(shell, result, output_format, output_digits);
+            print_mpfr_value(result, output_format, output_digits);
             printf("\n");
             break;
     }
@@ -395,25 +389,33 @@ static char* read_dynamic_line(FILE* input) {
         return NULL;
     }
 
-    while (fgets(buffer + size, (int)(capacity - size), input) != NULL) {
+    while (1) {
+        if (capacity - size <= 1) {
+            if (capacity > ((size_t)-1) / 2) {
+                free(buffer);
+                return NULL;
+            }
+
+            capacity *= 2;
+            char* resized = realloc(buffer, capacity);
+            if (resized == NULL) {
+                free(buffer);
+                return NULL;
+            }
+            buffer = resized;
+        }
+
+        const size_t available = capacity - size;
+        const int read_size = available > (size_t)INT_MAX ? INT_MAX : (int)available;
+
+        if (fgets(buffer + size, read_size, input) == NULL) {
+            break;
+        }
         size += strlen(buffer + size);
         if (size > 0 && buffer[size - 1] == '\n') {
             buffer[size - 1] = '\0';
             return buffer;
         }
-
-        if (capacity > ((size_t)-1) / 2) {
-            free(buffer);
-            return NULL;
-        }
-
-        capacity *= 2;
-        char* resized = realloc(buffer, capacity);
-        if (resized == NULL) {
-            free(buffer);
-            return NULL;
-        }
-        buffer = resized;
     }
 
     if (size > 0) {
@@ -497,7 +499,7 @@ static void print_symbols(const CalculatorShell* shell,
         printf("%s %s = ",
                symbol->kind == CALCULATOR_SYMBOL_CONST ? "const" : "var",
                symbol->name);
-        print_mpfr_value_raw(shell, symbol->value, shell->format,
+        print_mpfr_value_raw(symbol->value, shell->format,
                              shell->format == OUTPUT_FORMAT_FIXED
                                  ? shell->fixed_digits
                                  : shell->precision_digits);
@@ -650,7 +652,7 @@ static ProcessLineResult process_line(CalculatorShell* shell,
     CalculatorMpfrResult result;
     calculator_mpfr_result_init(&result, context->precision);
     calculator_mpfr_context_evaluate(context, expression, &result);
-    print_result(shell, &result, output_format, output_digits);
+    print_result(&result, output_format, output_digits);
 
     const int ans_updated = update_ans(context, &result);
     const int ok = result.status == CALCULATOR_OK && ans_updated;
@@ -733,7 +735,6 @@ int main(int argc, char** argv) {
     shell.precision_digits = DEFAULT_DECIMAL_DIGITS;
     shell.format = OUTPUT_FORMAT_GENERAL;
     shell.fixed_digits = DEFAULT_DECIMAL_DIGITS;
-    shell.quiet = 0;
 
     const char* expression = NULL;
     const char* file_path = NULL;
@@ -749,7 +750,6 @@ int main(int argc, char** argv) {
                 return 1;
             }
             expression = argv[++i];
-            shell.quiet = 1;
             continue;
         }
         if (strcmp(argv[i], "--file") == 0) {
@@ -758,7 +758,6 @@ int main(int argc, char** argv) {
                 return 1;
             }
             file_path = argv[++i];
-            shell.quiet = 1;
             continue;
         }
         if (strcmp(argv[i], "--precision") == 0) {
@@ -806,8 +805,10 @@ int main(int argc, char** argv) {
 
             char* line = read_dynamic_line(stdin);
             if (line == NULL) {
-                printf("Input error\n");
-                exit_code = 1;
+                if (!feof(stdin)) {
+                    printf("Input error\n");
+                    exit_code = 1;
+                }
                 break;
             }
 
