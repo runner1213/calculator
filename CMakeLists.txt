@@ -91,7 +91,7 @@ add_executable(calculator src/main.c)
 target_link_libraries(calculator PRIVATE calculator_core)
 
 if (CALCULATOR_USE_STATIC_MPFR)
-    target_link_options(calculator PRIVATE -static-libgcc)
+    target_link_options(calculator PRIVATE -static-libgcc -Wl,--disable-dynamicbase)
 elseif (WIN32)
     if (NOT MPFR_RUNTIME_DLL OR NOT GMP_RUNTIME_DLL OR NOT MINGW_GCC_RUNTIME_DLL OR NOT MINGW_WINPTHREAD_RUNTIME_DLL)
         message(FATAL_ERROR "MPFR, GMP, and MinGW runtime DLLs are required for a dynamic Windows build.")

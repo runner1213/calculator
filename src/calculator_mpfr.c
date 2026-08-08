@@ -1,5 +1,6 @@
 #include "calculator/calculator_mpfr.h"
 
+#include <gmp.h>
 #include <limits.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -48,6 +49,31 @@ static char* duplicate_string(const char* value) {
 
     memcpy(copy, value, length + 1);
     return copy;
+}
+
+static int add_size_checked(size_t a, size_t b, size_t* result) {
+    if (a > (size_t)-1 - b) {
+        return 0;
+    }
+
+    *result = a + b;
+    return 1;
+}
+
+static CalculatorStatus allocate_text(size_t length, char** output) {
+    *output = malloc(length + 1);
+    if (*output == NULL) {
+        return CALCULATOR_ERROR_MEMORY;
+    }
+
+    (*output)[length] = '\0';
+    return CALCULATOR_OK;
+}
+
+static void free_gmp_string(char* value) {
+    void (*free_function)(void*, size_t) = NULL;
+    mp_get_memory_functions(NULL, NULL, &free_function);
+    free_function(value, strlen(value) + 1);
 }
 
 mpfr_prec_t calculator_mpfr_precision_for_decimal_digits(size_t digits_after_point) {
@@ -646,19 +672,104 @@ CalculatorStatus calculator_mpfr_result_format_fixed(const CalculatorMpfrResult*
         return CALCULATOR_ERROR_MEMORY;
     }
 
-    char* formatted = NULL;
-    if (mpfr_asprintf(&formatted, "%.*Rf", (int)digits_after_point, result->value) < 0 ||
-        formatted == NULL) {
+    mpz_t scale;
+    mpz_t scaled_integer;
+    mpz_init(scale);
+    mpz_init(scaled_integer);
+    mpz_ui_pow_ui(scale, 10, (unsigned long)digits_after_point);
+
+    const mp_bitcnt_t scale_bits = mpz_sizeinbase(scale, 2);
+    mpfr_prec_t scaled_precision = mpfr_get_prec(result->value);
+    if ((long double)scaled_precision + (long double)scale_bits + 8.0L >
+        (long double)MPFR_PREC_MAX) {
+        scaled_precision = MPFR_PREC_MAX;
+    } else {
+        scaled_precision = (mpfr_prec_t)(scaled_precision + (mpfr_prec_t)scale_bits + 8);
+    }
+
+    mpfr_t scaled;
+    mpfr_init2(scaled, scaled_precision);
+    mpfr_mul_z(scaled, result->value, scale, MPFR_RNDN);
+    mpfr_get_z(scaled_integer, scaled, MPFR_RNDN);
+    mpfr_clear(scaled);
+    mpz_clear(scale);
+
+    const int negative = mpz_sgn(scaled_integer) < 0;
+    if (negative) {
+        mpz_neg(scaled_integer, scaled_integer);
+    }
+
+    char* digits = mpz_get_str(NULL, 10, scaled_integer);
+    mpz_clear(scaled_integer);
+    if (digits == NULL) {
         return CALCULATOR_ERROR_MEMORY;
     }
 
-    char* text = duplicate_string(formatted);
-    mpfr_free_str(formatted);
-    if (text == NULL) {
+    const size_t digits_length = strlen(digits);
+    size_t output_length = negative ? 1 : 0;
+
+    if (digits_after_point == 0) {
+        if (!add_size_checked(output_length, digits_length, &output_length)) {
+            free_gmp_string(digits);
+            return CALCULATOR_ERROR_MEMORY;
+        }
+
+        CalculatorStatus status = allocate_text(output_length, output);
+        if (status != CALCULATOR_OK) {
+            free_gmp_string(digits);
+            return status;
+        }
+
+        char* cursor = *output;
+        if (negative) {
+            *cursor++ = '-';
+        }
+        memcpy(cursor, digits, digits_length);
+        free_gmp_string(digits);
+        return CALCULATOR_OK;
+    }
+
+    const int has_integer_digits = digits_length > digits_after_point;
+    const size_t integer_digits = has_integer_digits ? digits_length - digits_after_point : 1;
+    const size_t leading_fraction_zeroes = has_integer_digits ? 0 : digits_after_point - digits_length;
+    const size_t copied_fraction_digits = has_integer_digits ? digits_after_point : digits_length;
+
+    if (!add_size_checked(output_length, integer_digits, &output_length) ||
+        !add_size_checked(output_length, 1, &output_length) ||
+        !add_size_checked(output_length, leading_fraction_zeroes, &output_length) ||
+        !add_size_checked(output_length, copied_fraction_digits, &output_length)) {
+        free_gmp_string(digits);
         return CALCULATOR_ERROR_MEMORY;
     }
 
-    *output = text;
+    CalculatorStatus status = allocate_text(output_length, output);
+    if (status != CALCULATOR_OK) {
+        free_gmp_string(digits);
+        return status;
+    }
+
+    char* cursor = *output;
+    if (negative) {
+        *cursor++ = '-';
+    }
+
+    if (has_integer_digits) {
+        memcpy(cursor, digits, integer_digits);
+        cursor += integer_digits;
+    } else {
+        *cursor++ = '0';
+    }
+
+    *cursor++ = '.';
+    memset(cursor, '0', leading_fraction_zeroes);
+    cursor += leading_fraction_zeroes;
+
+    if (copied_fraction_digits > 0) {
+        const char* fraction_start = has_integer_digits ? digits + integer_digits : digits;
+        memcpy(cursor, fraction_start, copied_fraction_digits);
+    }
+
+    free_gmp_string(digits);
     return CALCULATOR_OK;
 }
 

@@ -166,48 +166,172 @@ static int set_context_decimal_precision(CalculatorMpfrContext* context, size_t 
     return 1;
 }
 
-static void print_mpfr_value_fixed_raw(const mpfr_t value, size_t digits_after_point) {
-    if (digits_after_point > (size_t)INT_MAX) {
-        printf("<format error>");
-        return;
+static int print_mpfr_special_raw(const mpfr_t value) {
+    if (mpfr_nan_p(value)) {
+        printf("nan");
+        return 1;
     }
+    if (mpfr_inf_p(value)) {
+        printf("%s", mpfr_sgn(value) < 0 ? "-inf" : "inf");
+        return 1;
+    }
+
+    return 0;
+}
+
+static void print_mpfr_exponent(mpfr_exp_t exponent) {
+    printf("e%+ld", (long)exponent);
+}
+
+static void print_mpfr_value_fixed_raw(const mpfr_t value, size_t digits_after_point) {
+    CalculatorMpfrResult result;
+    calculator_mpfr_result_init(&result, mpfr_get_prec(value));
+    mpfr_set(result.value, value, MPFR_RNDN);
 
     char* formatted = NULL;
-    if (mpfr_asprintf(&formatted, "%.*Rf", (int)digits_after_point, value) < 0 ||
-        formatted == NULL) {
+    const CalculatorStatus status =
+        calculator_mpfr_result_format_fixed(&result, digits_after_point, &formatted);
+    if (status == CALCULATOR_OK) {
+        printf("%s", formatted);
+        calculator_mpfr_free_string(formatted);
+    } else {
+        printf("<format error>");
+    }
+
+    calculator_mpfr_result_clear(&result);
+}
+
+static void print_mpfr_value_scientific_raw(const mpfr_t value, size_t significant_digits) {
+    if (print_mpfr_special_raw(value)) {
+        return;
+    }
+
+    if (significant_digits == 0) {
+        significant_digits = 1;
+    }
+
+    if (mpfr_zero_p(value)) {
+        printf("0");
+        if (significant_digits > 1) {
+            printf(".");
+            for (size_t i = 1; i < significant_digits; i++) {
+                printf("0");
+            }
+        }
+        print_mpfr_exponent(0);
+        return;
+    }
+
+    mpfr_exp_t exponent = 0;
+    char* raw_digits = mpfr_get_str(NULL, &exponent, 10, significant_digits, value, MPFR_RNDN);
+    if (raw_digits == NULL) {
         printf("<format error>");
         return;
     }
 
-    printf("%s", formatted);
-    mpfr_free_str(formatted);
+    const int negative = raw_digits[0] == '-';
+    const char* digits = raw_digits + (negative ? 1 : 0);
+    size_t digits_length = strlen(digits);
+
+    if (negative) {
+        printf("-");
+    }
+    printf("%c", digits[0]);
+    if (significant_digits > 1) {
+        printf(".");
+        for (size_t i = 1; i < significant_digits; i++) {
+            printf("%c", i < digits_length ? digits[i] : '0');
+        }
+    }
+    print_mpfr_exponent(exponent - 1);
+    mpfr_free_str(raw_digits);
+}
+
+static void print_mpfr_value_general_raw(const mpfr_t value, size_t significant_digits) {
+    if (print_mpfr_special_raw(value)) {
+        return;
+    }
+
+    if (significant_digits == 0) {
+        significant_digits = 1;
+    }
+    if (mpfr_zero_p(value)) {
+        printf("0");
+        return;
+    }
+
+    mpfr_exp_t exponent = 0;
+    char* raw_digits = mpfr_get_str(NULL, &exponent, 10, significant_digits, value, MPFR_RNDN);
+    if (raw_digits == NULL) {
+        printf("<format error>");
+        return;
+    }
+
+    const int negative = raw_digits[0] == '-';
+    const char* digits = raw_digits + (negative ? 1 : 0);
+    size_t digits_length = strlen(digits);
+    while (digits_length > 1 && digits[digits_length - 1] == '0') {
+        digits_length--;
+    }
+
+    if (negative) {
+        printf("-");
+    }
+
+    if (exponent <= -4 || exponent > (mpfr_exp_t)significant_digits) {
+        printf("%c", digits[0]);
+        if (digits_length > 1) {
+            printf(".");
+            for (size_t i = 1; i < digits_length; i++) {
+                printf("%c", digits[i]);
+            }
+        }
+        print_mpfr_exponent(exponent - 1);
+    } else if (exponent <= 0) {
+        printf("0.");
+        for (mpfr_exp_t i = exponent; i < 0; i++) {
+            printf("0");
+        }
+        for (size_t i = 0; i < digits_length; i++) {
+            printf("%c", digits[i]);
+        }
+    } else if ((size_t)exponent >= digits_length) {
+        for (size_t i = 0; i < digits_length; i++) {
+            printf("%c", digits[i]);
+        }
+        for (size_t i = digits_length; i < (size_t)exponent; i++) {
+            printf("0");
+        }
+    } else {
+        const size_t integer_digits = (size_t)exponent;
+        for (size_t i = 0; i < integer_digits; i++) {
+            printf("%c", digits[i]);
+        }
+        printf(".");
+        for (size_t i = integer_digits; i < digits_length; i++) {
+            printf("%c", digits[i]);
+        }
+    }
+
+    mpfr_free_str(raw_digits);
 }
 
 static void print_mpfr_value_raw(const CalculatorShell* shell,
                                  const mpfr_t value,
                                  OutputFormat override_format,
                                  size_t override_digits) {
-    const OutputFormat format = override_format;
-    const size_t digits = override_digits;
-    int print_digits = digits > (size_t)INT_MAX ? INT_MAX : (int)digits;
+    (void)shell;
 
-    switch (format) {
+    switch (override_format) {
         case OUTPUT_FORMAT_FIXED:
-            print_mpfr_value_fixed_raw(value, digits);
+            print_mpfr_value_fixed_raw(value, override_digits);
             break;
         case OUTPUT_FORMAT_SCIENTIFIC:
-            if (print_digits > 0) {
-                print_digits--;
-            }
-            mpfr_printf("%.*Re", print_digits, value);
+            print_mpfr_value_scientific_raw(value, override_digits);
             break;
         case OUTPUT_FORMAT_GENERAL:
         default:
-            (void)shell;
-            if (print_digits < 1) {
-                print_digits = 1;
-            }
-            mpfr_printf("%.*Rg", print_digits, value);
+            print_mpfr_value_general_raw(value, override_digits);
             break;
     }
 }
