@@ -18,9 +18,11 @@ typedef struct {
 static void init_result_fields(CalculatorMpfrResult* result) {
     result->status = CALCULATOR_OK;
     result->kind = CALCULATOR_RESULT_VALUE;
+    result->is_complex = 0;
     result->name[0] = '\0';
     result->error[0] = '\0';
     mpfr_set_nan(result->value);
+    mpfr_set_zero(result->imaginary_value, 0);
 }
 
 static void set_error(CalculatorMpfrResult* result, CalculatorStatus status, const char* message) {
@@ -32,6 +34,8 @@ static void set_error(CalculatorMpfrResult* result, CalculatorStatus status, con
     strncpy(result->error, message, CALCULATOR_ERROR_SIZE - 1);
     result->error[CALCULATOR_ERROR_SIZE - 1] = '\0';
     mpfr_set_nan(result->value);
+    mpfr_set_nan(result->imaginary_value);
+    result->is_complex = 1;
 }
 
 static void set_result_name(CalculatorMpfrResult* result, const char* name) {
@@ -150,6 +154,7 @@ void calculator_mpfr_context_clear_symbols(CalculatorMpfrContext* context) {
         free(context->symbols[i].name);
         free(context->symbols[i].source_expression);
         mpfr_clear(context->symbols[i].value);
+        mpfr_clear(context->symbols[i].imaginary_value);
     }
 
     context->count = 0;
@@ -174,6 +179,7 @@ void calculator_mpfr_result_init(CalculatorMpfrResult* result,
     }
 
     mpfr_init2(result->value, precision);
+    mpfr_init2(result->imaginary_value, precision);
     init_result_fields(result);
 }
 
@@ -183,6 +189,7 @@ void calculator_mpfr_result_clear(CalculatorMpfrResult* result) {
     }
 
     mpfr_clear(result->value);
+    mpfr_clear(result->imaginary_value);
 }
 
 static int find_symbol_index(const CalculatorMpfrContext* context, const char* name, size_t* index) {
@@ -202,7 +209,7 @@ static int find_symbol_index(const CalculatorMpfrContext* context, const char* n
 
 static int is_builtin_or_keyword(const char* name) {
     static const char* reserved[] = {
-        "abs", "ans", "const", "cos", "deg", "degrees", "exp", "ln", "log",
+        "abs", "ans", "const", "cos", "deg", "degrees", "exp", "i", "ln", "log",
         "null", "sin", "sqrt", "tan", "var",
         "G", "c", "h", "k", "pi"
     };
@@ -255,6 +262,8 @@ static void set_kind_result(CalculatorMpfrResult* result, CalculatorSymbolKind k
 static CalculatorStatus set_symbol(CalculatorMpfrContext* context,
                                    const char* name,
                                    const mpfr_t value,
+                                   const mpfr_t imaginary_value,
+                                   int is_complex,
                                    CalculatorSymbolKind kind,
                                    const char* source_expression,
                                    int allow_reserved,
@@ -283,10 +292,15 @@ static CalculatorStatus set_symbol(CalculatorMpfrContext* context,
         }
 
         mpfr_prec_round(symbol->value, context->precision, context->rounding);
+        mpfr_prec_round(symbol->imaginary_value, context->precision, context->rounding);
         mpfr_set(symbol->value, value, context->rounding);
+        mpfr_set(symbol->imaginary_value, imaginary_value, context->rounding);
+        symbol->is_complex = is_complex && !mpfr_zero_p(imaginary_value);
         free(symbol->source_expression);
         symbol->source_expression = expression_copy;
         mpfr_set(result->value, value, context->rounding);
+        mpfr_set(result->imaginary_value, imaginary_value, context->rounding);
+        result->is_complex = symbol->is_complex;
         set_result_name(result, name);
         set_kind_result(result, kind, 0);
         return result->status;
@@ -308,10 +322,15 @@ static CalculatorStatus set_symbol(CalculatorMpfrContext* context,
     symbol->source_expression = expression_copy;
     symbol->kind = kind;
     mpfr_init2(symbol->value, context->precision);
+    mpfr_init2(symbol->imaginary_value, context->precision);
     mpfr_set(symbol->value, value, context->rounding);
+    mpfr_set(symbol->imaginary_value, imaginary_value, context->rounding);
+    symbol->is_complex = is_complex && !mpfr_zero_p(imaginary_value);
     context->count++;
 
     mpfr_set(result->value, value, context->rounding);
+    mpfr_set(result->imaginary_value, imaginary_value, context->rounding);
+    result->is_complex = symbol->is_complex;
     set_result_name(result, name);
     set_kind_result(result, kind, 0);
     return result->status;
@@ -335,6 +354,7 @@ static CalculatorStatus delete_symbol(CalculatorMpfrContext* context,
     free(context->symbols[index].name);
     free(context->symbols[index].source_expression);
     mpfr_clear(context->symbols[index].value);
+    mpfr_clear(context->symbols[index].imaginary_value);
     if (index + 1 < context->count) {
         memmove(&context->symbols[index],
                 &context->symbols[index + 1],
@@ -366,8 +386,14 @@ static CalculatorStatus evaluate_expression(CalculatorMpfrContext* context,
     parser.mutable_reference_index = 0;
     mpfr_lexer_init(&parser.lexer, expression, result);
 
+    MpfrComplex value;
+    mpfr_init2(value.real, mpfr_get_prec(result->value));
+    mpfr_init2(value.imag, mpfr_get_prec(result->value));
+    mpfr_set_zero(value.real, 0);
+    mpfr_set_zero(value.imag, 0);
+    value.is_complex = 0;
     if (result->status == CALCULATOR_OK) {
-        mpfr_parse_expression(&parser, result->value);
+        mpfr_parse_expression(&parser, &value);
     }
     if (result->status == CALCULATOR_OK && parser.lexer.current.type != MPFR_TOKEN_END) {
         set_error(result, CALCULATOR_ERROR_SYNTAX, "Unexpected trailing input");
@@ -379,14 +405,26 @@ static CalculatorStatus evaluate_expression(CalculatorMpfrContext* context,
         !parser.has_multiple_mutable_references) {
         CalculatorMpfrSymbol* symbol = &context->symbols[parser.mutable_reference_index];
         mpfr_prec_round(symbol->value, context->precision, context->rounding);
-        mpfr_set(symbol->value, result->value, context->rounding);
+        mpfr_prec_round(symbol->imaginary_value, context->precision, context->rounding);
+        mpfr_set(symbol->value, value.real, context->rounding);
+        mpfr_set(symbol->imaginary_value, value.imag, context->rounding);
+        symbol->is_complex = value.is_complex;
         result->kind = CALCULATOR_RESULT_VAR_UPDATED;
         set_result_name(result, symbol->name);
     }
+    if (result->status == CALCULATOR_OK) {
+        mpfr_set(result->value, value.real, context->rounding);
+        mpfr_set(result->imaginary_value, value.imag, context->rounding);
+        result->is_complex = value.is_complex;
+    }
     if (result->status != CALCULATOR_OK) {
         mpfr_set_nan(result->value);
+        mpfr_set_nan(result->imaginary_value);
+        result->is_complex = 1;
     }
 
+    mpfr_clear(value.imag);
+    mpfr_clear(value.real);
     return result->status;
 }
 
@@ -401,6 +439,7 @@ static CalculatorStatus refresh_constants(CalculatorMpfrContext* context,
         CalculatorMpfrSymbol* symbol = &context->symbols[i];
         if (symbol->kind != CALCULATOR_SYMBOL_CONST || symbol->source_expression == NULL) {
             mpfr_prec_round(symbol->value, context->precision, context->rounding);
+            mpfr_prec_round(symbol->imaginary_value, context->precision, context->rounding);
             continue;
         }
 
@@ -414,12 +453,17 @@ static CalculatorStatus refresh_constants(CalculatorMpfrContext* context,
                      symbol->name,
                      value_result.error);
             mpfr_set_nan(result->value);
+            mpfr_set_nan(result->imaginary_value);
+            result->is_complex = 1;
             calculator_mpfr_result_clear(&value_result);
             return result->status;
         }
 
         mpfr_prec_round(symbol->value, context->precision, context->rounding);
+        mpfr_prec_round(symbol->imaginary_value, context->precision, context->rounding);
         mpfr_set(symbol->value, value_result.value, context->rounding);
+        mpfr_set(symbol->imaginary_value, value_result.imaginary_value, context->rounding);
+        symbol->is_complex = value_result.is_complex;
         calculator_mpfr_result_clear(&value_result);
     }
 
@@ -439,7 +483,46 @@ CalculatorStatus calculator_mpfr_context_set_ans(CalculatorMpfrContext* context,
         return result->status;
     }
 
-    return set_symbol(context, "ans", value, CALCULATOR_SYMBOL_CONST, NULL, 1, result);
+    mpfr_t zero;
+    mpfr_init2(zero, context->precision);
+    mpfr_set_zero(zero, 0);
+    const CalculatorStatus status = set_symbol(context,
+                                               "ans",
+                                               value,
+                                               zero,
+                                               0,
+                                               CALCULATOR_SYMBOL_CONST,
+                                               NULL,
+                                               1,
+                                               result);
+    mpfr_clear(zero);
+    return status;
+}
+
+CalculatorStatus calculator_mpfr_context_set_complex_ans(CalculatorMpfrContext* context,
+                                                         const mpfr_t value,
+                                                         const mpfr_t imaginary_value,
+                                                         int is_complex,
+                                                         CalculatorMpfrResult* result) {
+    if (result == NULL) {
+        return CALCULATOR_ERROR_MEMORY;
+    }
+
+    init_result_fields(result);
+    if (context == NULL) {
+        set_error(result, CALCULATOR_ERROR_SYNTAX, "Calculator context is NULL");
+        return result->status;
+    }
+
+    return set_symbol(context,
+                      "ans",
+                      value,
+                      imaginary_value,
+                      is_complex,
+                      CALCULATOR_SYMBOL_CONST,
+                      NULL,
+                      1,
+                      result);
 }
 
 static int parse_assignment_header(const char* input,
@@ -528,6 +611,7 @@ CalculatorStatus calculator_mpfr_evaluate(const char* expression,
     }
 
     mpfr_prec_round(result->value, precision, rounding);
+    mpfr_prec_round(result->imaginary_value, precision, rounding);
     init_result_fields(result);
 
     CalculatorMpfrContext context;
@@ -555,6 +639,7 @@ CalculatorStatus calculator_mpfr_context_evaluate(CalculatorMpfrContext* context
     }
 
     mpfr_prec_round(result->value, context->precision, context->rounding);
+    mpfr_prec_round(result->imaginary_value, context->precision, context->rounding);
 
     MpfrAssignment assignment;
     if (!parse_assignment_header(expression, &assignment, result)) {
@@ -580,12 +665,16 @@ CalculatorStatus calculator_mpfr_context_evaluate(CalculatorMpfrContext* context
         result->error[CALCULATOR_ERROR_SIZE - 1] = '\0';
         calculator_mpfr_result_clear(&value_result);
         mpfr_set_nan(result->value);
+        mpfr_set_nan(result->imaginary_value);
+        result->is_complex = 1;
         return result->status;
     }
 
     const CalculatorStatus status = set_symbol(context,
                                                assignment.name,
                                                value_result.value,
+                                               value_result.imaginary_value,
+                                               value_result.is_complex,
                                                assignment.kind,
                                                assignment.expression,
                                                0,
@@ -656,25 +745,19 @@ CalculatorStatus calculator_mpfr_context_evaluate_fixed(CalculatorMpfrContext* c
     return calculator_mpfr_result_format_fixed(result, digits_after_point, output);
 }
 
-CalculatorStatus calculator_mpfr_result_format_fixed(const CalculatorMpfrResult* result,
-                                                     size_t digits_after_point,
-                                                     char** output) {
+static CalculatorStatus format_mpfr_fixed_value(const mpfr_t value,
+                                                size_t digits_after_point,
+                                                char** output) {
     if (output == NULL) {
         return CALCULATOR_ERROR_MEMORY;
     }
     *output = NULL;
-    if (result == NULL) {
-        return CALCULATOR_ERROR_MEMORY;
-    }
-    if (result->status != CALCULATOR_OK) {
-        return result->status;
-    }
-    if (mpfr_nan_p(result->value)) {
+    if (mpfr_nan_p(value)) {
         *output = duplicate_string("nan");
         return *output == NULL ? CALCULATOR_ERROR_MEMORY : CALCULATOR_OK;
     }
-    if (mpfr_inf_p(result->value)) {
-        *output = duplicate_string(mpfr_sgn(result->value) < 0 ? "-inf" : "inf");
+    if (mpfr_inf_p(value)) {
+        *output = duplicate_string(mpfr_sgn(value) < 0 ? "-inf" : "inf");
         return *output == NULL ? CALCULATOR_ERROR_MEMORY : CALCULATOR_OK;
     }
 
@@ -689,7 +772,7 @@ CalculatorStatus calculator_mpfr_result_format_fixed(const CalculatorMpfrResult*
     mpz_ui_pow_ui(scale, 10, (unsigned long)digits_after_point);
 
     const size_t scale_bits = mpz_sizeinbase(scale, 2);
-    mpfr_prec_t scaled_precision = mpfr_get_prec(result->value);
+    mpfr_prec_t scaled_precision = mpfr_get_prec(value);
     if ((long double)scaled_precision + (long double)scale_bits + 8.0L >
         (long double)MPFR_PREC_MAX) {
         scaled_precision = MPFR_PREC_MAX;
@@ -699,7 +782,7 @@ CalculatorStatus calculator_mpfr_result_format_fixed(const CalculatorMpfrResult*
 
     mpfr_t scaled;
     mpfr_init2(scaled, scaled_precision);
-    mpfr_mul_z(scaled, result->value, scale, MPFR_RNDN);
+    mpfr_mul_z(scaled, value, scale, MPFR_RNDN);
     mpfr_get_z(scaled_integer, scaled, MPFR_RNDN);
     mpfr_clear(scaled);
     mpz_clear(scale);
@@ -780,6 +863,63 @@ CalculatorStatus calculator_mpfr_result_format_fixed(const CalculatorMpfrResult*
     }
 
     free_gmp_string(digits);
+    return CALCULATOR_OK;
+}
+
+CalculatorStatus calculator_mpfr_result_format_fixed(const CalculatorMpfrResult* result,
+                                                     size_t digits_after_point,
+                                                     char** output) {
+    if (output == NULL) {
+        return CALCULATOR_ERROR_MEMORY;
+    }
+    *output = NULL;
+    if (result == NULL) {
+        return CALCULATOR_ERROR_MEMORY;
+    }
+    if (result->status != CALCULATOR_OK) {
+        return result->status;
+    }
+    if (!result->is_complex) {
+        return format_mpfr_fixed_value(result->value, digits_after_point, output);
+    }
+
+    char* real = NULL;
+    char* imag = NULL;
+    mpfr_t imag_abs;
+    mpfr_init2(imag_abs, mpfr_get_prec(result->imaginary_value));
+    mpfr_abs(imag_abs, result->imaginary_value, MPFR_RNDN);
+
+    CalculatorStatus status = format_mpfr_fixed_value(result->value, digits_after_point, &real);
+    if (status == CALCULATOR_OK) {
+        status = format_mpfr_fixed_value(imag_abs, digits_after_point, &imag);
+    }
+    mpfr_clear(imag_abs);
+    if (status != CALCULATOR_OK) {
+        free(real);
+        free(imag);
+        return status;
+    }
+
+    const char* sign = mpfr_sgn(result->imaginary_value) < 0 ? " - " : " + ";
+    size_t output_length = 0;
+    if (!add_size_checked(strlen(real), strlen(sign), &output_length) ||
+        !add_size_checked(output_length, strlen(imag), &output_length) ||
+        !add_size_checked(output_length, 1, &output_length)) {
+        free(real);
+        free(imag);
+        return CALCULATOR_ERROR_MEMORY;
+    }
+
+    status = allocate_text(output_length, output);
+    if (status != CALCULATOR_OK) {
+        free(real);
+        free(imag);
+        return status;
+    }
+
+    snprintf(*output, output_length + 1, "%s%s%si", real, sign, imag);
+    free(real);
+    free(imag);
     return CALCULATOR_OK;
 }
 

@@ -15,6 +15,8 @@ typedef struct {
     char* name;
     char* source_expression;
     mpfr_t value;
+    mpfr_t imaginary_value;
+    int is_complex;
     CalculatorSymbolKind kind;
 } CalculatorMpfrSymbol;
 
@@ -30,6 +32,8 @@ typedef struct {
     CalculatorStatus status;
     CalculatorResultKind kind;
     mpfr_t value;
+    mpfr_t imaginary_value;
+    int is_complex;
     char name[CALCULATOR_NAME_SIZE];
     char error[CALCULATOR_ERROR_SIZE];
 } CalculatorMpfrResult;
@@ -50,6 +54,11 @@ void calculator_mpfr_context_free(CalculatorMpfrContext* context);
 CalculatorStatus calculator_mpfr_context_set_ans(CalculatorMpfrContext* context,
                                                  const mpfr_t value,
                                                  CalculatorMpfrResult* result);
+CalculatorStatus calculator_mpfr_context_set_complex_ans(CalculatorMpfrContext* context,
+                                                         const mpfr_t value,
+                                                         const mpfr_t imaginary_value,
+                                                         int is_complex,
+                                                         CalculatorMpfrResult* result);
 
 void calculator_mpfr_result_init(CalculatorMpfrResult* result,
                                  mpfr_prec_t precision);

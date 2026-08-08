@@ -5,6 +5,9 @@
 - Power: `^` (example: `2^3 = 8`)
 - Factorial: `!` (example: `5! = 120`)
 - Parentheses: `( )` for grouping
+- Complex numbers: `i` (examples: `sqrt(-1)`, `2 + 3i`, `(1+i)^2`)
+
+Factorial is supported for real non-negative integers.
 
 ### Mathematical functions
 - `sqrt(x)` - square root
@@ -19,6 +22,7 @@
 
 ### Built-in constants
 - `pi` - 3.141592653589793...
+- `i` - imaginary unit
 - `ans` - previous successful result in the current session
 - `c` - speed of light in vacuum, m/s
 - `G` - gravitational constant, N*m^2/kg^2
@@ -91,7 +95,8 @@ Lines in `--file` may contain shell commands such as `:precision 200`, expressio
   - `calculator_context_evaluate(context, expression)`
   - `parser(expression)`
 - MPFR API is available through `include/calculator/calculator_mpfr.h`.
-- Result values are stored in `mpfr_t`, so callers initialize and clear `CalculatorMpfrResult`.
+- Result values store real and imaginary `mpfr_t` parts. Callers initialize and clear `CalculatorMpfrResult`.
+- `CalculatorMpfrResult::is_complex` indicates whether `imaginary_value` is part of the result.
 - `calculator_mpfr_context_set_precision_checked(context, precision, result)` changes context precision and refreshes stored constants that have source expressions.
 - `calculator_mpfr_context_clear_symbols(context)` removes all session symbols.
 - `calculator_mpfr_context_set_ans(context, value, result)` updates the internal `ans` symbol.

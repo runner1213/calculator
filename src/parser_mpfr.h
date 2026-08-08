@@ -5,6 +5,12 @@
 #include "lexer_mpfr.h"
 
 typedef struct {
+    mpfr_t real;
+    mpfr_t imag;
+    int is_complex;
+} MpfrComplex;
+
+typedef struct {
     MpfrLexer lexer;
     CalculatorMpfrResult* result;
     CalculatorMpfrContext* context;
@@ -15,6 +21,6 @@ typedef struct {
     size_t mutable_reference_index;
 } MpfrParser;
 
-void mpfr_parse_expression(MpfrParser* parser, mpfr_t value);
+void mpfr_parse_expression(MpfrParser* parser, MpfrComplex* value);
 
 #endif

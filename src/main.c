@@ -41,6 +41,7 @@ static void print_help(void) {
     printf("  Power: ^ (example: 2^3 = 8)\n");
     printf("  Factorial: ! (example: 5! = 120)\n");
     printf("  Parentheses: ( ) for grouping\n");
+    printf("  Complex: i (examples: sqrt(-1), 2 + 3i, (1+i)^2)\n");
     printf("\nMathematical functions:\n");
     printf("  sqrt(x)   - square root\n");
     printf("  sin(x)    - sine (radians)\n");
@@ -53,6 +54,7 @@ static void print_help(void) {
     printf("  deg(x)    - convert degrees to radians\n");
     printf("\nConstants:\n");
     printf("  pi        - 3.141592653589793...\n");
+    printf("  i         - imaginary unit\n");
     printf("  ans       - previous successful result\n");
     printf("  c         - speed of light in vacuum, m/s\n");
     printf("  G         - gravitational constant, N*m^2/kg^2\n");
@@ -335,7 +337,20 @@ static void print_mpfr_value_raw(const mpfr_t value,
 static void print_mpfr_value(const CalculatorMpfrResult* result,
                              OutputFormat override_format,
                              size_t override_digits) {
+    if (!result->is_complex) {
+        print_mpfr_value_raw(result->value, override_format, override_digits);
+        return;
+    }
+
     print_mpfr_value_raw(result->value, override_format, override_digits);
+    printf("%s", mpfr_sgn(result->imaginary_value) < 0 ? " - " : " + ");
+
+    mpfr_t imag_abs;
+    mpfr_init2(imag_abs, mpfr_get_prec(result->imaginary_value));
+    mpfr_abs(imag_abs, result->imaginary_value, MPFR_RNDN);
+    print_mpfr_value_raw(imag_abs, override_format, override_digits);
+    mpfr_clear(imag_abs);
+    printf("i");
 }
 
 static void print_result(const CalculatorMpfrResult* result,
@@ -499,10 +514,24 @@ static void print_symbols(const CalculatorShell* shell,
         printf("%s %s = ",
                symbol->kind == CALCULATOR_SYMBOL_CONST ? "const" : "var",
                symbol->name);
-        print_mpfr_value_raw(symbol->value, shell->format,
+        if (symbol->is_complex) {
+            CalculatorMpfrResult symbol_result;
+            calculator_mpfr_result_init(&symbol_result, mpfr_get_prec(symbol->value));
+            mpfr_set(symbol_result.value, symbol->value, MPFR_RNDN);
+            mpfr_set(symbol_result.imaginary_value, symbol->imaginary_value, MPFR_RNDN);
+            symbol_result.is_complex = symbol->is_complex;
+            print_mpfr_value(&symbol_result,
+                             shell->format,
                              shell->format == OUTPUT_FORMAT_FIXED
                                  ? shell->fixed_digits
                                  : shell->precision_digits);
+            calculator_mpfr_result_clear(&symbol_result);
+        } else {
+            print_mpfr_value_raw(symbol->value, shell->format,
+                                 shell->format == OUTPUT_FORMAT_FIXED
+                                     ? shell->fixed_digits
+                                     : shell->precision_digits);
+        }
         if (symbol->source_expression != NULL) {
             printf("  [source: %s]", symbol->source_expression);
         }
@@ -594,7 +623,12 @@ static int update_ans(CalculatorMpfrContext* context, const CalculatorMpfrResult
 
     CalculatorMpfrResult ans_result;
     calculator_mpfr_result_init(&ans_result, context->precision);
-    const CalculatorStatus status = calculator_mpfr_context_set_ans(context, result->value, &ans_result);
+    const CalculatorStatus status = calculator_mpfr_context_set_complex_ans(
+        context,
+        result->value,
+        result->imaginary_value,
+        result->is_complex,
+        &ans_result);
     if (status != CALCULATOR_OK) {
         printf("Error: cannot update ans: %s\n", ans_result.error);
         calculator_mpfr_result_clear(&ans_result);
