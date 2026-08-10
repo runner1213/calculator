@@ -1,5 +1,6 @@
 #include "calculator/calculator.h"
 
+#include <ctype.h>
 #include <math.h>
 #include <stdlib.h>
 #include <string.h>
@@ -319,6 +320,51 @@ static int parse_assignment_header(const char* input, Assignment* assignment, Ca
     return 1;
 }
 
+static int is_assignment_identifier_start(unsigned char c) {
+    return c == '_' || isalpha(c) || c >= 0x80;
+}
+
+static int is_assignment_identifier_part(unsigned char c) {
+    return c == '_' || isalnum(c) || c >= 0x80;
+}
+
+static int identifier_equals(const char* start, size_t length, const char* value) {
+    return strlen(value) == length && strncmp(start, value, length) == 0;
+}
+
+static int could_be_assignment(const char* input) {
+    const char* cursor = input;
+    if ((unsigned char)cursor[0] == 0xEF &&
+        (unsigned char)cursor[1] == 0xBB &&
+        (unsigned char)cursor[2] == 0xBF) {
+        cursor += 3;
+    }
+
+    while (*cursor != '\0' && isspace((unsigned char)*cursor)) {
+        cursor++;
+    }
+    if (!is_assignment_identifier_start((unsigned char)*cursor)) {
+        return 0;
+    }
+
+    const char* start = cursor;
+    cursor++;
+    while (is_assignment_identifier_part((unsigned char)*cursor)) {
+        cursor++;
+    }
+
+    const size_t length = (size_t)(cursor - start);
+    if (identifier_equals(start, length, "const") ||
+        identifier_equals(start, length, "var")) {
+        return 1;
+    }
+
+    while (*cursor != '\0' && isspace((unsigned char)*cursor)) {
+        cursor++;
+    }
+    return *cursor == '=';
+}
+
 static int is_null_literal(const char* expression) {
     CalculatorResult result;
     init_result(&result);
@@ -352,7 +398,8 @@ CalculatorResult calculator_context_evaluate(CalculatorContext* context, const c
     }
 
     Assignment assignment;
-    if (!parse_assignment_header(expression, &assignment, &result)) {
+    if (!could_be_assignment(expression) ||
+        !parse_assignment_header(expression, &assignment, &result)) {
         if (result.status != CALCULATOR_OK) {
             return result;
         }

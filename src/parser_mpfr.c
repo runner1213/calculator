@@ -1,7 +1,6 @@
 #include "parser_mpfr.h"
 
 #include <stdio.h>
-#include <stdlib.h>
 #include <string.h>
 
 #define MAX_PARSE_DEPTH 512
@@ -154,6 +153,14 @@ static void complex_mul(MpfrParser* parser,
                         const MpfrComplex* left,
                         const MpfrComplex* right) {
     const mpfr_rnd_t rnd = parser_rounding(parser);
+    if (!left->is_complex && !right->is_complex) {
+        mpfr_mul(result->real, left->real, right->real, rnd);
+        mpfr_set_zero(result->imag, 0);
+        result->is_complex = 0;
+        check_complex_result(parser, result, "Arithmetic result is undefined");
+        return;
+    }
+
     const mpfr_prec_t precision = complex_precision(result);
     mpfr_t real;
     mpfr_t imag;
@@ -186,6 +193,20 @@ static void complex_div(MpfrParser* parser,
                         const MpfrComplex* left,
                         const MpfrComplex* right) {
     const mpfr_rnd_t rnd = parser_rounding(parser);
+    if (!left->is_complex && !right->is_complex) {
+        if (mpfr_zero_p(right->real)) {
+            set_error(parser, CALCULATOR_ERROR_DOMAIN, "Division by zero");
+            complex_set_nan(result);
+            return;
+        }
+
+        mpfr_div(result->real, left->real, right->real, rnd);
+        mpfr_set_zero(result->imag, 0);
+        result->is_complex = 0;
+        check_complex_result(parser, result, "Arithmetic result is undefined");
+        return;
+    }
+
     const mpfr_prec_t precision = complex_precision(result);
     mpfr_t denom;
     mpfr_t real;
@@ -233,6 +254,14 @@ static void complex_div(MpfrParser* parser,
 
 static void complex_abs_value(MpfrParser* parser, const MpfrComplex* arg, MpfrComplex* result) {
     const mpfr_rnd_t rnd = parser_rounding(parser);
+    if (!arg->is_complex) {
+        mpfr_abs(result->real, arg->real, rnd);
+        mpfr_set_zero(result->imag, 0);
+        result->is_complex = 0;
+        check_complex_result(parser, result, "Function result is undefined");
+        return;
+    }
+
     mpfr_hypot(result->real, arg->real, arg->imag, rnd);
     mpfr_set_zero(result->imag, 0);
     result->is_complex = 0;
@@ -241,6 +270,14 @@ static void complex_abs_value(MpfrParser* parser, const MpfrComplex* arg, MpfrCo
 
 static void complex_ln(MpfrParser* parser, const MpfrComplex* arg, MpfrComplex* result) {
     const mpfr_rnd_t rnd = parser_rounding(parser);
+    if (!arg->is_complex && mpfr_sgn(arg->real) > 0) {
+        mpfr_log(result->real, arg->real, rnd);
+        mpfr_set_zero(result->imag, 0);
+        result->is_complex = 0;
+        check_complex_result(parser, result, "Function result is undefined");
+        return;
+    }
+
     const mpfr_prec_t precision = complex_precision(result);
     mpfr_t magnitude;
 
@@ -263,6 +300,14 @@ static void complex_ln(MpfrParser* parser, const MpfrComplex* arg, MpfrComplex* 
 
 static void complex_exp(MpfrParser* parser, const MpfrComplex* arg, MpfrComplex* result) {
     const mpfr_rnd_t rnd = parser_rounding(parser);
+    if (!arg->is_complex) {
+        mpfr_exp(result->real, arg->real, rnd);
+        mpfr_set_zero(result->imag, 0);
+        result->is_complex = 0;
+        check_complex_result(parser, result, "Function result is undefined");
+        return;
+    }
+
     const mpfr_prec_t precision = complex_precision(result);
     mpfr_t scale;
     mpfr_t sin_imag;
@@ -286,6 +331,14 @@ static void complex_exp(MpfrParser* parser, const MpfrComplex* arg, MpfrComplex*
 
 static void complex_sin(MpfrParser* parser, const MpfrComplex* arg, MpfrComplex* result) {
     const mpfr_rnd_t rnd = parser_rounding(parser);
+    if (!arg->is_complex) {
+        mpfr_sin(result->real, arg->real, rnd);
+        mpfr_set_zero(result->imag, 0);
+        result->is_complex = 0;
+        check_complex_result(parser, result, "Function result is undefined");
+        return;
+    }
+
     const mpfr_prec_t precision = complex_precision(result);
     mpfr_t sin_real;
     mpfr_t cos_real;
@@ -312,6 +365,14 @@ static void complex_sin(MpfrParser* parser, const MpfrComplex* arg, MpfrComplex*
 
 static void complex_cos(MpfrParser* parser, const MpfrComplex* arg, MpfrComplex* result) {
     const mpfr_rnd_t rnd = parser_rounding(parser);
+    if (!arg->is_complex) {
+        mpfr_cos(result->real, arg->real, rnd);
+        mpfr_set_zero(result->imag, 0);
+        result->is_complex = 0;
+        check_complex_result(parser, result, "Function result is undefined");
+        return;
+    }
+
     const mpfr_prec_t precision = complex_precision(result);
     mpfr_t sin_real;
     mpfr_t cos_real;
@@ -339,6 +400,14 @@ static void complex_cos(MpfrParser* parser, const MpfrComplex* arg, MpfrComplex*
 
 static void complex_sqrt(MpfrParser* parser, const MpfrComplex* arg, MpfrComplex* result) {
     const mpfr_rnd_t rnd = parser_rounding(parser);
+    if (!arg->is_complex && mpfr_sgn(arg->real) >= 0) {
+        mpfr_sqrt(result->real, arg->real, rnd);
+        mpfr_set_zero(result->imag, 0);
+        result->is_complex = 0;
+        check_complex_result(parser, result, "Function result is undefined");
+        return;
+    }
+
     const mpfr_prec_t precision = complex_precision(result);
     mpfr_t magnitude;
     mpfr_t temp;
@@ -478,6 +547,16 @@ static void apply_function(MpfrParser* parser,
     const mpfr_rnd_t rnd = parser_rounding(parser);
 
     if (strcmp(name, "deg") == 0 || strcmp(name, "degrees") == 0) {
+        if (!arg->is_complex) {
+            mpfr_const_pi(value->real, rnd);
+            mpfr_mul(value->real, arg->real, value->real, rnd);
+            mpfr_div_ui(value->real, value->real, 180, rnd);
+            mpfr_set_zero(value->imag, 0);
+            value->is_complex = 0;
+            check_complex_result(parser, value, "Function result is undefined");
+            return;
+        }
+
         mpfr_t pi;
         mpfr_init2(pi, complex_precision(value));
         mpfr_const_pi(pi, rnd);
@@ -503,6 +582,14 @@ static void apply_function(MpfrParser* parser,
         return;
     }
     if (strcmp(name, "tan") == 0) {
+        if (!arg->is_complex) {
+            mpfr_tan(value->real, arg->real, rnd);
+            mpfr_set_zero(value->imag, 0);
+            value->is_complex = 0;
+            check_complex_result(parser, value, "Function result is undefined");
+            return;
+        }
+
         MpfrComplex sin_value;
         MpfrComplex cos_value;
         complex_init(&sin_value, complex_precision(value));
@@ -519,6 +606,14 @@ static void apply_function(MpfrParser* parser,
         return;
     }
     if (strcmp(name, "log") == 0) {
+        if (!arg->is_complex && mpfr_sgn(arg->real) > 0) {
+            mpfr_log10(value->real, arg->real, rnd);
+            mpfr_set_zero(value->imag, 0);
+            value->is_complex = 0;
+            check_complex_result(parser, value, "Function result is undefined");
+            return;
+        }
+
         complex_ln(parser, arg, value);
         if (parser->result->status == CALCULATOR_OK) {
             mpfr_t log10;
@@ -651,15 +746,27 @@ static void apply_factorial(MpfrParser* parser, const MpfrComplex* value, MpfrCo
         complex_set_nan(result);
         return;
     }
+    if (mpfr_fits_ulong_p(value->real, MPFR_RNDN)) {
+        const unsigned long n = mpfr_get_ui(value->real, MPFR_RNDN);
+        if (n <= 10000UL) {
+            mpfr_fac_ui(result->real, n, rnd);
+            mpfr_set_zero(result->imag, 0);
+            result->is_complex = 0;
+            check_complex_result(parser, result, "Factorial result is undefined");
+            return;
+        }
+    }
 
-    mpfr_t gamma_arg;
-    mpfr_init2(gamma_arg, complex_precision(result));
-    mpfr_add_ui(gamma_arg, value->real, 1, rnd);
-    mpfr_gamma(result->real, gamma_arg, rnd);
-    mpfr_set_zero(result->imag, 0);
-    result->is_complex = 0;
-    mpfr_clear(gamma_arg);
-    check_complex_result(parser, result, "Factorial result is undefined");
+    {
+        mpfr_t gamma_arg;
+        mpfr_init2(gamma_arg, complex_precision(result));
+        mpfr_add_ui(gamma_arg, value->real, 1, rnd);
+        mpfr_gamma(result->real, gamma_arg, rnd);
+        mpfr_set_zero(result->imag, 0);
+        result->is_complex = 0;
+        mpfr_clear(gamma_arg);
+        check_complex_result(parser, result, "Factorial result is undefined");
+    }
 }
 
 static void parse_primary(MpfrParser* parser, MpfrComplex* value) {
@@ -671,19 +778,11 @@ static void parse_primary(MpfrParser* parser, MpfrComplex* value) {
     const MpfrToken token = parser->lexer.current;
 
     if (accept(parser, MPFR_TOKEN_NUMBER)) {
-        char* number = malloc(token.number_length + 1);
-        if (number == NULL) {
-            set_error(parser, CALCULATOR_ERROR_MEMORY, "Cannot allocate number text");
-            leave(parser);
-            return;
-        }
-
-        memcpy(number, token.number_start, token.number_length);
-        number[token.number_length] = '\0';
-        if (mpfr_set_str(value->real, number, 10, parser_rounding(parser)) != 0) {
+        char* end = NULL;
+        mpfr_strtofr(value->real, token.number_start, &end, 10, parser_rounding(parser));
+        if (end != token.number_start + token.number_length) {
             set_error(parser, CALCULATOR_ERROR_SYNTAX, "Invalid number");
         }
-        free(number);
 
         mpfr_set_zero(value->imag, 0);
         value->is_complex = 0;

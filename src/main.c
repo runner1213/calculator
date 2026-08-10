@@ -151,6 +151,10 @@ static int parse_size_value(const char* text, size_t* value) {
 
 static int set_context_decimal_precision(CalculatorMpfrContext* context, size_t digits) {
     const mpfr_prec_t precision = calculator_mpfr_precision_for_decimal_digits(digits);
+    if (context->precision == precision) {
+        return 1;
+    }
+
     CalculatorMpfrResult precision_result;
     calculator_mpfr_result_init(&precision_result, precision);
     const CalculatorStatus status = calculator_mpfr_context_set_precision_checked(
