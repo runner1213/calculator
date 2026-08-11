@@ -90,6 +90,14 @@ endif ()
 add_executable(calculator src/main.c)
 target_link_libraries(calculator PRIVATE calculator_core)
 
+enable_testing()
+
+add_test(NAME calculator_cli_tests
+        COMMAND ${CMAKE_COMMAND}
+                -D "CALCULATOR_EXE=$<TARGET_FILE:calculator>"
+                -D "CALCULATOR_TEST_WORK_DIR=${CMAKE_CURRENT_BINARY_DIR}"
+                -P "${CMAKE_CURRENT_SOURCE_DIR}/tests/cli_tests.cmake")
+
 if (CALCULATOR_USE_STATIC_MPFR)
     target_link_options(calculator PRIVATE -static-libgcc -Wl,--disable-dynamicbase)
 elseif (WIN32)
