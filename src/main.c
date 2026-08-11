@@ -358,8 +358,8 @@ static void print_mpfr_value(const CalculatorMpfrResult* result,
 }
 
 static void print_result(const CalculatorMpfrResult* result,
-                         OutputFormat output_format,
-                         size_t output_digits) {
+                         const OutputFormat output_format,
+                         const size_t output_digits) {
     if (result->status != CALCULATOR_OK) {
         printf("Error: %s\n", result->error);
         return;
@@ -410,7 +410,7 @@ static char* read_dynamic_line(FILE* input) {
 
     while (1) {
         if (capacity - size <= 1) {
-            if (capacity > ((size_t)-1) / 2) {
+            if (capacity > (size_t)-1 / 2) {
                 free(buffer);
                 return NULL;
             }
